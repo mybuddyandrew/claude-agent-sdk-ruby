@@ -1,13 +1,12 @@
-# Claude Agent SDK for Ruby
+# Claude Agent SDK for Ruby + Skein
 
-> **Disclaimer**: This is an **unofficial, community-maintained** Ruby SDK for Claude Agent. It is not officially supported by Anthropic. For official SDK support, see the [Python SDK](https://docs.claude.com/en/api/agent-sdk/python).
->
-> This implementation is based on the official Python SDK and aims to provide feature parity for Ruby developers. Use at your own risk.
+> **Fork notice**: This is a fork of the [unofficial Ruby Claude Agent SDK](https://github.com/ya-luotao/claude-agent-sdk-ruby) that also includes **Skein**, a personal assistant agent kernel built on top of the SDK. The SDK layer is unchanged — Skein lives alongside it in `lib/skein/`.
 
 [![Gem Version](https://badge.fury.io/rb/claude-agent-sdk.svg?icon=si%3Arubygems)](https://badge.fury.io/rb/claude-agent-sdk)
 
 ## Table of Contents
 
+- [Skein](#skein)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Basic Usage: query()](#basic-usage-query)
@@ -29,6 +28,60 @@
 - [Examples](#examples)
 - [Development](#development)
 - [License](#license)
+
+## Skein
+
+Skein is a personal assistant agent kernel that uses the Claude Agent SDK as its execution backend. It adds persistent memory, behavioral lessons, task management, a skill plugin system, and more on top of the SDK's raw Claude CLI interface.
+
+### Architecture
+
+```
+Skein Agent Kernel (lib/skein/)
+  ├── Agent           — Core task processing, extraction, summarization
+  ├── SdkClient       — Wraps SDK for task execution, extraction, decomposition
+  ├── ToolExecutor    — Domain tools (remember, recall, write_note, etc.)
+  ├── SkillRegistry   — Dynamic skill plugins with hooks and schedules
+  ├── Memory/Lesson   — Persistent knowledge with SQLite + optional vector search
+  ├── Task/Timer      — State machine tasks, recurring/oneshot timers
+  ├── Dispatcher/Lane — Priority-based task scheduling
+  ├── Kernel/REPL     — Runtime orchestration and interactive CLI
+  │
+  ▼
+Claude Agent SDK (lib/claude_agent_sdk/)
+  ├── query()         — One-shot/streaming queries
+  └── Client          — Bidirectional sessions with hooks/permissions
+        │
+        ▼
+      Claude Code CLI (~/.local/bin/claude)
+```
+
+### Key Components
+
+| Component | Description |
+|-----------|-------------|
+| `Agent` | Core task processor. Handles decomposition, extraction, summarization, session persistence. |
+| `SdkClient` | Wraps `ClaudeAgentSDK::Client` for tasks, `query()` for extraction. Builds MCP tools per-task. |
+| `Memory` | SQLite-backed memory store with keyword + optional semantic search via embeddings. |
+| `Lesson` | Behavioral lessons with effectiveness scoring and pruning. |
+| `Task` | State machine (new -> running -> completed/failed/blocked) with subtask support. |
+| `Skill` | Plugin system. Skills in `skills/<name>/` with `manifest.yml` + `skill.rb`. |
+| `DB` | SQLite3 with 9 tables, optional sqlite-vec for embeddings. |
+
+### Running Skein Tests
+
+```bash
+bundle exec rspec spec/skein/                     # All Skein specs (238 examples)
+bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
+SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (hits real CLI)
+```
+
+### Requirements
+
+- Ruby 4.0.0 (via asdf)
+- Claude Code CLI 2.0.0+ at `~/.local/bin/claude`
+- SQLite3, sqlite-vec (optional), informers (optional, for embeddings)
+
+---
 
 ## Installation
 
