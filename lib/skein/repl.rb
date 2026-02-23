@@ -1,7 +1,10 @@
 require "json"
+require_relative "runtime_helpers"
 
 module Skein
   class Repl
+    include RuntimeHelpers
+
     CHAT_ID = "cli"
     RATING_MAP = { "1" => -2, "2" => -1, "3" => 0, "4" => 1, "5" => 2 }.freeze
 
@@ -154,7 +157,7 @@ module Skein
           sleep 0.08
           i += 1
         end
-      rescue
+      rescue StandardError
         # thread killed
       end
     end
@@ -249,23 +252,9 @@ module Skein
 
       @lessons.rate_for_task(task_id: task_id, delta: delta)
       puts "#{DIM}  [rated #{input}/5 — lessons adjusted]#{RESET}" unless delta.zero?
-    rescue StandardError
+    rescue StandardError => e
+      log "Rating error: #{e.message}"
       # Never break the REPL over a rating
-    end
-
-    def skill_context
-      {
-        memory: @memory, timers: @timers, lessons: @lessons,
-        events: @events, db: @db, config: @config, logger: method(:log),
-      }
-    end
-
-    def build_embedder
-      return nil unless @config.embedding_enabled
-      Embedder.new(model_name: @config.embedding_model)
-    rescue LoadError => e
-      log "Embeddings disabled: #{e.message}"
-      nil
     end
 
     def setup_signal_handlers!

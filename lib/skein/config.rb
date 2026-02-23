@@ -1,7 +1,7 @@
 module Skein
   class Config
     attr_reader :telegram_token, :db_path,
-                :heartbeat_interval, :poll_timeout, :model,
+                :heartbeat_interval, :poll_timeout, :model, :cli_path,
                 :max_context_turns, :summary_threshold, :memory_consolidation_threshold,
                 :system_prompt_path, :heartbeat_path,
                 :admin_chat_id, :allowed_chat_ids,
@@ -17,6 +17,8 @@ module Skein
       @heartbeat_interval = overrides.fetch(:heartbeat_interval) { ENV.fetch("SKEIN_HEARTBEAT_INTERVAL", "3600").to_i }
       @poll_timeout       = overrides.fetch(:poll_timeout)       { ENV.fetch("SKEIN_POLL_TIMEOUT", "30").to_i }
       @model              = overrides.fetch(:model)              { ENV.fetch("SKEIN_MODEL", "sonnet") }
+      raw_cli_path        = overrides.fetch(:cli_path)           { ENV.fetch("SKEIN_CLI_PATH", "~/.local/bin/claude") }
+      @cli_path           = File.expand_path(raw_cli_path)
       @max_context_turns  = overrides.fetch(:max_context_turns)  { ENV.fetch("SKEIN_MAX_CONTEXT_TURNS", "20").to_i }
       @summary_threshold  = overrides.fetch(:summary_threshold)  { ENV.fetch("SKEIN_SUMMARY_THRESHOLD", "40").to_i }
       @memory_consolidation_threshold = overrides.fetch(:memory_consolidation_threshold) { ENV.fetch("SKEIN_MEMORY_CONSOLIDATION_THRESHOLD", "100").to_i }

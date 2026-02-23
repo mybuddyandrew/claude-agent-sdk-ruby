@@ -1,6 +1,7 @@
 require "claude_agent_sdk"
 require "async"
 require "timeout"
+require "skein/version"
 
 module Skein
   # SdkClient wraps the Ruby Claude Agent SDK.
@@ -16,18 +17,18 @@ module Skein
   class SdkClient
     class SdkError < StandardError; end
 
-    CLI_PATH = File.expand_path("~/.local/bin/claude")
-
     SAFE_BUILTIN_TOOLS = %w[Read Glob Grep WebFetch WebSearch Task].freeze
     ALL_BUILTIN_TOOLS  = (SAFE_BUILTIN_TOOLS + %w[Bash Write Edit]).freeze
 
     attr_reader :running
+    attr_writer :current_task_id
 
     def initialize(config:, tool_executor:, channel:, logger: nil)
       @config = config
       @tool_executor = tool_executor
       @channel = channel
       @logger = logger
+      @cli_path = @config.cli_path
       @running = false
 
       # Callbacks — set by Agent via on_stream
@@ -48,7 +49,7 @@ module Skein
 
     def start
       @running = true
-      log "SDK client started (cli: #{CLI_PATH})"
+      log "SDK client started (cli: #{@cli_path})"
     end
 
     def shutdown
@@ -81,7 +82,7 @@ module Skein
 
       Async do
         options = ClaudeAgentSDK::ClaudeAgentOptions.new(
-          cli_path: CLI_PATH,
+          cli_path: @cli_path,
           system_prompt: system_prompt,
           mcp_servers: { skein: mcp_server },
           allowed_tools: allowed,
@@ -123,7 +124,7 @@ module Skein
         "structured_output" => nil,
       }
     rescue ClaudeAgentSDK::CLINotFoundError
-      raise SdkError, "Claude CLI not found at #{CLI_PATH}"
+      raise SdkError, "Claude CLI not found at #{@cli_path}"
     rescue ClaudeAgentSDK::ProcessError => e
       raise SdkError, "Claude process failed: #{e.message} (exit #{e.exit_code})"
     rescue => e
@@ -143,7 +144,7 @@ module Skein
         ClaudeAgentSDK.query(
           prompt: prompt,
           options: ClaudeAgentSDK::ClaudeAgentOptions.new(
-            cli_path: CLI_PATH,
+            cli_path: @cli_path,
             model: @config.model,
             system_prompt: "You are a precise extraction assistant. Return only the requested structured data.",
             output_format: { type: "json_schema", schema: schema },
@@ -173,7 +174,7 @@ module Skein
         ClaudeAgentSDK.query(
           prompt: decompose_prompt(input_text),
           options: ClaudeAgentSDK::ClaudeAgentOptions.new(
-            cli_path: CLI_PATH,
+            cli_path: @cli_path,
             model: @config.model,
             system_prompt: "You are a task planning assistant. Analyze whether the request should be decomposed.",
             output_format: { type: "json_schema", schema: decompose_schema },
@@ -243,7 +244,7 @@ module Skein
       end
 
       ClaudeAgentSDK.create_sdk_mcp_server(
-        name: "skein", version: "0.1.0", tools: tools
+        name: "skein", version: Skein::VERSION, tools: tools
       )
     end
 

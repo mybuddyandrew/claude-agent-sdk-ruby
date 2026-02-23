@@ -71,6 +71,11 @@ RSpec.describe Skein::Config do
       config = Skein::Config.new
       expect(config.notes_dir).to eq("docs/notes")
     end
+
+    it "has default cli_path" do
+      config = Skein::Config.new
+      expect(config.cli_path).to eq(File.expand_path("~/.local/bin/claude"))
+    end
   end
 
   describe "embedding config" do
@@ -108,6 +113,24 @@ RSpec.describe Skein::Config do
       expect(config_env.model).to eq("haiku")
     ensure
       ENV.delete("SKEIN_MODEL")
+    end
+
+    it "takes precedence for cli_path" do
+      ENV["SKEIN_CLI_PATH"] = "/tmp/env-claude"
+      config = Skein::Config.new(cli_path: "/tmp/override-claude")
+      expect(config.cli_path).to eq("/tmp/override-claude")
+    ensure
+      ENV.delete("SKEIN_CLI_PATH")
+    end
+  end
+
+  describe "#cli_path" do
+    it "uses custom cli_path from env" do
+      ENV["SKEIN_CLI_PATH"] = "/tmp/custom-claude"
+      config = Skein::Config.new
+      expect(config.cli_path).to eq("/tmp/custom-claude")
+    ensure
+      ENV.delete("SKEIN_CLI_PATH")
     end
   end
 

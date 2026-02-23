@@ -41,29 +41,11 @@ module Skein
       )
     end
 
-    # Check if a task has any pending (non-terminal) subtasks.
-    def has_pending_subtasks?(task_id)
-      row = @db.get_first_row(
-        "SELECT COUNT(*) AS cnt FROM tasks WHERE parent_task_id = ? AND state NOT IN ('completed', 'failed')",
-        [task_id]
-      )
-      row["cnt"] > 0
-    end
-
     # Check if all subtasks of a parent are completed.
     def all_subtasks_completed?(parent_id)
       subs = subtasks(parent_id)
       return false if subs.empty?
       subs.all? { |s| s["state"] == "completed" }
-    end
-
-    # Check if a task is a parent (has subtasks).
-    def parent_task?(task_id)
-      row = @db.get_first_row(
-        "SELECT COUNT(*) AS cnt FROM tasks WHERE parent_task_id = ?",
-        [task_id]
-      )
-      row["cnt"] > 0
     end
 
     def transition!(task_id, new_state, attrs = {})

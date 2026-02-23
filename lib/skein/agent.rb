@@ -40,11 +40,6 @@ module Skein
       log "SDK client stopped"
     end
 
-    # No-op for API compatibility — tools are built from ToolExecutor each task.
-    def register_skill_tools(tool_definitions)
-      @sdk_client.register_tools(tool_definitions)
-    end
-
     # --- Core Task Processing ---
 
     def process_task(task)
@@ -66,8 +61,7 @@ module Skein
 
       # Set context for SDK client (tools need to know active task/chat).
       @active_chat_id = chat_id
-      @active_task_id = task_id
-      @sdk_client.instance_variable_set(:@current_task_id, task_id)
+      @sdk_client.current_task_id = task_id
 
       # Build context for the SDK
       memories_text = @memory.format_for_prompt(limit: 20) || ""
@@ -88,7 +82,7 @@ module Skein
 
       begin
         result = @sdk_client.send_task(
-          task["input_text"],
+          input_text,
           chat_id:    chat_id,
           session_id: session_id,
           memories:   memories_text,
@@ -287,16 +281,12 @@ module Skein
     end
 
     # --- Context helpers ---
-    # These return the current task context for tool callbacks.
+    # This returns the current chat context for tool callbacks.
     # Since only one task is processed at a time and send_task blocks,
-    # we use instance variables set in process_task.
+    # we use an instance variable set in process_task.
 
     def current_chat_id
       @active_chat_id
-    end
-
-    def current_task_id
-      @active_task_id
     end
 
     # --- Parent task completion ---

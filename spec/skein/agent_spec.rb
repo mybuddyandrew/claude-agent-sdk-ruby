@@ -13,7 +13,7 @@ require "json"
 # Mock SDK client that returns canned results without spawning Claude CLI
 class MockSdkClient
   attr_reader :tasks_sent
-  attr_accessor :next_result, :next_extract_result, :next_decompose_result
+  attr_accessor :next_result, :next_extract_result, :next_decompose_result, :current_task_id
 
   def initialize
     @tasks_sent = []

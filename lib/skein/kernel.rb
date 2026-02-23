@@ -1,7 +1,10 @@
 require "json"
+require_relative "runtime_helpers"
 
 module Skein
   class Kernel
+    include RuntimeHelpers
+
     def initialize
       @config    = Config.new
 
@@ -122,13 +125,6 @@ module Skein
 
     def tool_context
       { telegram: @telegram }
-    end
-
-    def skill_context
-      {
-        memory: @memory, timers: @timers, lessons: @lessons,
-        events: @events, db: @db, config: @config, logger: method(:log),
-      }
     end
 
     private
@@ -263,14 +259,6 @@ module Skein
       Dispatcher::Sequential.new(
         lane: @lane, tasks: @tasks, agent: @agent, logger: method(:log)
       )
-    end
-
-    def build_embedder
-      return nil unless @config.embedding_enabled
-      Embedder.new(model_name: @config.embedding_model)
-    rescue LoadError => e
-      log "Embeddings disabled: #{e.message}"
-      nil
     end
 
     # Split a long message into chunks that fit within Telegram's limit.
