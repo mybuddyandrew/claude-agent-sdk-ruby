@@ -56,3 +56,8 @@ Gemfile.lock
 .rubocop-https?--*
 .rubocop_cache/
 .rspec_status
+
+# Skein artifacts
+*.sqlite3
+*.db
+docs/notes/

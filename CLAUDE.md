@@ -1,86 +1,120 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository.
 
 ## Project Overview
 
-Unofficial, community-maintained Ruby SDK for Claude Agent (gem: `claude-agent-sdk`). Wraps the Claude Code CLI as a subprocess, communicating via stream-JSON over stdin/stdout. Requires Ruby 3.2+ and Claude Code CLI 2.0.0+.
+This repo contains two integrated layers:
 
-Runtime dependencies: `async` (~2.0) for concurrency, `mcp` (~0.4) for MCP protocol compliance.
+1. **Claude Agent SDK** (`lib/claude_agent_sdk/`) — Unofficial Ruby SDK wrapping the Claude Code CLI as a subprocess, communicating via stream-JSON over stdin/stdout.
+2. **Skein** (`lib/skein/`) — Personal assistant agent kernel built on top of the SDK. Handles memory, lessons, task management, tool execution, skill system, conversation summarization, and task decomposition.
+
+**Runtime:** Ruby 4.0.0 (via asdf). Claude Code CLI 2.0.0+ at `~/.local/bin/claude` (native binary, uses Max subscription — no API key needed).
+
+**Dependencies:** `async` (~2.0), `mcp` (~0.4), `sqlite3` (~2.9), `sqlite-vec` (~0.1), `informers` (~1.2)
 
 ## Common Commands
 
 ```bash
-bundle install                              # Install dependencies
-bundle exec rspec                           # Run all unit tests (integration tests excluded by default)
-bundle exec rspec spec/unit/types_spec.rb   # Run a single spec file
-bundle exec rspec spec/unit/types_spec.rb:42  # Run a single test by line number
-RUN_INTEGRATION=1 bundle exec rspec         # Include integration tests (requires Claude Code CLI)
-bundle exec rubocop                         # Run linter
-bundle exec rake                            # Run default task (spec + rubocop)
-bundle exec rake build                      # Build the gem
+bundle install                                    # Install dependencies
+bundle exec rspec                                 # Run all unit tests (459 examples)
+bundle exec rspec spec/unit/                      # SDK specs only (221 examples)
+bundle exec rspec spec/skein/                     # Skein specs only (238 examples)
+bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
+bundle exec rspec spec/skein/agent_spec.rb:42     # Single test by line number
+SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live SDK tests (hits real CLI)
+RUN_INTEGRATION=1 bundle exec rspec               # Include SDK integration tests
+bundle exec rubocop                               # Run linter
 ```
 
 ## Architecture
 
-### Layered Design
+### Full Stack
 
 ```
-User code
-  ├── ClaudeAgentSDK.query()     ← One-shot/streaming, defined in lib/claude_agent_sdk.rb
-  └── ClaudeAgentSDK::Client     ← Bidirectional sessions, defined in lib/claude_agent_sdk.rb
+Skein Agent Kernel (lib/skein/)
+  ├── Agent           ← Core task processing, extraction, summarization
+  ├── SdkClient       ← Wraps SDK for task execution, extraction, decomposition
+  ├── ToolExecutor    ← Domain tools (remember, recall, send_telegram, etc.)
+  ├── SkillRegistry   ← Dynamic skill plugins with hooks and schedules
+  ├── Memory/Lesson   ← Persistent knowledge with SQLite + optional vec search
+  ├── Task/Timer      ← State machine tasks, recurring/oneshot timers
+  ├── Dispatcher/Lane ← Priority-based task scheduling (L0 interrupt, L1 interactive)
+  ├── Kernel/REPL     ← Runtime orchestration and interactive CLI
+  │
+  ▼
+Claude Agent SDK (lib/claude_agent_sdk/)
+  ├── ClaudeAgentSDK.query()     ← One-shot/streaming queries
+  └── ClaudeAgentSDK::Client     ← Bidirectional sessions with hooks/permissions
         │
         ▼
-      Query (lib/claude_agent_sdk/query.rb)
-        - Bidirectional control protocol (control_request / control_response routing)
-        - Hook callback dispatch with typed inputs (PreToolUseHookInput, etc.)
-        - Permission callback handling (can_use_tool)
-        - SDK MCP server request routing (tools/call, resources/read, prompts/get)
-        - Message queue (Async::Queue) separating control messages from SDK messages
+      Query (control protocol, hooks, permissions, MCP routing)
         │
         ▼
-      SubprocessCLITransport (lib/claude_agent_sdk/subprocess_cli_transport.rb)
-        - Spawns `claude` CLI via Open3.popen3
-        - Builds CLI command from ClaudeAgentOptions
-        - Reads stdout as newline-delimited JSON, writes stdin for streaming mode
-        - Stderr handling in a separate Thread
+      SubprocessCLITransport (Open3.popen3, JSONL stdin/stdout)
         │
         ▼
-      Claude Code CLI (external Node.js process)
+      Claude Code CLI (~/.local/bin/claude)
 ```
 
-### Two API Entry Points
+### SDK Layer (lib/claude_agent_sdk/)
 
-- **`query()`** — Simple function interface. Creates a `SubprocessCLITransport` directly, reads messages via `transport.read_messages`, parses with `MessageParser`. No control protocol. Good for one-shot queries and streaming input via Enumerators.
+- **`query()`** — Simple function interface for one-shot queries and streaming input via Enumerators.
+- **`Client`** — Full bidirectional sessions with hooks, permission callbacks, SDK MCP servers, interrupt, model switching, file rewind.
+- **`SubprocessCLITransport`** — Spawns `claude` CLI via `Open3.popen3`, reads newline-delimited JSON.
+- **`Query`** — Bidirectional control protocol handler, routes control requests (hooks, permissions, MCP).
+- **`SdkMcpServer`** — In-process MCP servers for custom tools (no subprocess needed).
+- **`MessageParser`** — Converts raw JSON hashes into typed Ruby objects.
 
-- **`Client`** — Full-featured bidirectional sessions. Creates transport with empty enumerator (keeps stdin open), instantiates a `Query` handler that runs `read_messages` in an async task, routes control messages internally, and exposes SDK messages via `Async::Queue`. Supports hooks, permission callbacks, SDK MCP servers, interrupt, model switching, and file rewind.
+### Skein Layer (lib/skein/)
 
-### SDK MCP Servers
+- **`SdkClient`** (~350 lines) — Wraps `ClaudeAgentSDK::Client` for task execution and `ClaudeAgentSDK.query()` for extraction/decomposition. Builds MCP tools from ToolExecutor registry each task. Handles `can_use_tool` permission callback.
+- **`Agent`** (~580 lines) — Core task processor. Handles decomposition, extraction (lessons/memories), conversation summarization, memory consolidation, session persistence, subtask lifecycle.
+- **`ToolExecutor`** (~90 lines) — Mutable tool registry with `register_tool()`. Built-in tools: remember, recall, send_telegram, create_reminder, write_note.
+- **`Memory`** (~220 lines) — SQLite-backed memory store with keyword search, optional semantic search via embeddings. Deduplication, access counting, format_for_prompt.
+- **`Lesson`** (~120 lines) — Behavioral lessons with effectiveness scoring, pruning, rate_for_task.
+- **`Task`** (~135 lines) — State machine (new → running → completed/failed/blocked). Subtask support with parent completion tracking.
+- **`Skill`/`SkillRegistry`** — Plugin system. Skills live in `skills/<name>/` with `manifest.yml` + `skill.rb`. Hooks: `after_task`, `on_maintenance`, `on_schedule`. Dynamic tool registration.
+- **`DB`** (~200 lines) — SQLite3 with 9 tables, optional sqlite-vec for embeddings. Schema: events, tasks, timers, conversation_turns, memories, lessons, memory_embeddings, sessions, conversation_summaries.
+- **`Dispatcher`/`Lane`** — Priority-based task scheduling. L0 (interrupt) preempts L1 (interactive).
+- **`Config`** (~135 lines) — ENV-based config with constructor overrides. Auto-approve rules, embedding config, notes dir.
 
-Custom tools run in-process (no subprocess). The flow:
-1. User defines tools via `ClaudeAgentSDK.create_tool` → returns `SdkMcpTool`
-2. `create_sdk_mcp_server` wraps tools in `SdkMcpServer`, which creates dynamic `MCP::Tool` subclasses and delegates to the official `MCP::Server`
-3. The server config hash (`{ type: 'sdk', instance: server }`) is stored in `ClaudeAgentOptions.mcp_servers`
-4. `Client.connect` extracts SDK server instances and passes them to `Query`
-5. `Query.handle_control_request` dispatches `mcp_message` subtypes to the server's `list_tools` / `call_tool` / etc.
+### How SdkClient Uses the SDK
 
-### Message Flow
+SdkClient creates a fresh `ClaudeAgentSDK::Client` per task with:
+- MCP server built from ToolExecutor's registry (tools execute in-process)
+- `can_use_tool` lambda for permission routing (safe builtins auto-allow, others route to channel)
+- `permission_mode: "bypassPermissions"` (permissions handled by callback)
+- `include_partial_messages: true` for streaming
+- Session resumption via `resume: session_id`
 
-CLI outputs newline-delimited JSON. `SubprocessCLITransport.read_messages` parses it and yields raw hashes. In `Client` mode, `Query.read_messages` intercepts `control_response` and `control_request` types, putting regular messages on `@message_queue`. `MessageParser.parse` converts raw hashes into typed objects (`UserMessage`, `AssistantMessage`, `SystemMessage`, `ResultMessage`, `StreamEvent`).
+For extraction/decomposition, it uses `ClaudeAgentSDK.query()` with `output_format: { type: "json_schema", schema: ... }` for structured output.
 
-### Control Protocol
+### DB Schema (9 tables)
 
-Only active in streaming/Client mode. Uses `Async::Condition` for request-response coordination:
-- **Outbound requests** (SDK → CLI): `send_control_request` writes JSON, waits on condition, returns response
-- **Inbound requests** (CLI → SDK): `handle_control_request` dispatches to `can_use_tool`, `hook_callback`, or `mcp_message` handlers, writes response back
+`events`, `tasks`, `timers`, `conversation_turns`, `memories`, `lessons`, `memory_embeddings`, `sessions`, `conversation_summaries`
 
 ## Key Conventions
 
+### SDK Layer
 - All source in `lib/claude_agent_sdk/`, entry point is `lib/claude_agent_sdk.rb`
 - Types use plain Ruby classes with `attr_accessor` and keyword args (no Struct/Data)
-- Hook inputs are typed classes inheriting from `BaseHookInput`; hook outputs use `to_h` for serialization with camelCase keys for CLI compatibility
-- `ClaudeAgentOptions` is the central config object (~30 fields); uses `dup_with` for immutable-style updates
-- `to_h` methods on config types convert Ruby snake_case to CLI camelCase (e.g., `auto_allow_bash_if_sandboxed` → `autoAllowBashIfSandboxed`)
+- Hook inputs are typed classes inheriting from `BaseHookInput`
+- `to_h` methods convert Ruby snake_case to CLI camelCase
+- `ClaudeAgentOptions` is the central config object (~30 fields)
+
+### Skein Layer
+- All source in `lib/skein/`, entry point is `lib/skein.rb`
+- SQLite3 for persistence, in-memory `:memory:` for tests
+- Domain tools are modules with `.definition`, `.requires_approval?`, `.execute(input, **)`
+- Skills are classes inheriting from `Skein::Skill` with hooks
+- `SdkClient::SdkError` is the unified error type (replaces old BridgeClient errors)
+- Ruby 4.0 specifics: `SQLite3::Database#execute` returns frozen arrays (use `sort_by` not `sort_by!`)
+
+### Testing
+- RSpec with `expect` syntax only, `disable_monkey_patching!` enabled
+- SDK test helpers in `spec/support/test_helpers.rb`
+- Skein test helpers in `spec/support/skein_helpers.rb` (`create_test_db`)
+- Live tests gated behind `SKEIN_LIVE_TEST=1` (hit real Claude CLI)
+- Agent tests use `MockSdkClient` (defined in `spec/skein/agent_spec.rb`)
 - RuboCop config: max line length 120, max method length 30, Style/Documentation disabled
-- Tests use `expect` syntax only (no `should`), `disable_monkey_patching!` enabled
-- Test helpers in `spec/support/test_helpers.rb` provide `sample_*` message fixtures and `mock_transport`
