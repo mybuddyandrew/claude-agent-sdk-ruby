@@ -150,7 +150,7 @@ module Skein
         )
       ) do |msg|
         if msg.is_a?(ClaudeAgentSDK::ResultMessage) && msg.structured_output
-          result = normalize_output(msg.structured_output)
+          result = msg.structured_output
         end
       end
 
@@ -178,7 +178,7 @@ module Skein
         )
       ) do |msg|
         if msg.is_a?(ClaudeAgentSDK::ResultMessage) && msg.structured_output
-          result = normalize_output(msg.structured_output)
+          result = msg.structured_output
         end
       end
 
@@ -203,8 +203,7 @@ module Skein
     def build_mcp_server
       tools = []
 
-      @tool_executor.instance_variable_get(:@tool_map).each do |mcp_name, loader|
-        tool_mod = loader.call
+      @tool_executor.each_tool do |mcp_name, tool_mod|
         defn = tool_mod.definition
 
         # Capture for closure
@@ -327,13 +326,6 @@ module Skein
         .select { |b| b.is_a?(ClaudeAgentSDK::TextBlock) }
         .map(&:text)
         .join
-    end
-
-    # -- Structured output normalization ------------------------------------
-
-    def normalize_output(output)
-      return output if output.is_a?(Hash)
-      output
     end
 
     # -- Extraction schemas & prompts --------------------------------------

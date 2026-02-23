@@ -1,13 +1,12 @@
 require "json"
 
 module Skein
-  # ToolExecutor handles tool_call messages from the Python bridge.
+  # ToolExecutor maps MCP tool names (skein_remember, etc.) to Ruby tool
+  # implementations and executes them in-process.
   #
-  # When the bridge's MCP tools are invoked by the SDK, they delegate to Ruby
-  # via the pipe protocol. ToolExecutor maps MCP tool names (skein_remember, etc.)
-  # to the actual Ruby tool implementations and executes them.
-  #
-  # It also determines which tools require user approval (side-effecting tools).
+  # SdkClient calls each_tool to build MCP tool definitions that the SDK
+  # routes back here for execution. It also determines which tools require
+  # user approval (side-effecting tools).
   #
   # The tool registry is mutable — skills can register additional tools at boot.
   #
@@ -68,9 +67,17 @@ module Skein
       @tool_map.key?(tool_name)
     end
 
-    # Return all registered tool names (for bridge registration).
+    # Return all registered tool names.
     def registered_tool_names
       @tool_map.keys
+    end
+
+    # Yield each (mcp_name, tool_module) pair.
+    # Used by SdkClient to build MCP tool definitions.
+    def each_tool(&block)
+      @tool_map.each do |mcp_name, loader|
+        yield mcp_name, loader.call
+      end
     end
 
     private
