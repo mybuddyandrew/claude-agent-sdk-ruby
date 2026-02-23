@@ -2,9 +2,14 @@
 
 source 'https://rubygems.org'
 
-# Specify your gem's dependencies in claude-agent-sdk.gemspec
+ruby '4.0.0'
+
+# Specify gem's dependencies in claude-agent-sdk.gemspec
 gemspec
 
-gem 'rake', '~> 13.0'
-gem 'rspec', '~> 3.0'
-gem 'rubocop', '~> 1.0'
+group :development, :test do
+  gem 'rake', '~> 13.0'
+  gem 'rspec', '~> 3.0'
+  gem 'rubocop', '~> 1.0'
+  gem 'dotenv', '~> 3.1'
+end

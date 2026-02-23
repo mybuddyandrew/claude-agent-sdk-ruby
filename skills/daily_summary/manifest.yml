@@ -1,0 +1,8 @@
+name: daily_summary
+version: "1.0"
+description: >
+  Generates a daily summary of activity — tasks completed, memories stored,
+  lessons learned — and delivers it via the active channel.
+schedule:
+  interval: 86400        # 24 hours
+  initial_delay: 3600    # first run 1 hour after boot

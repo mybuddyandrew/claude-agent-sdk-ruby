@@ -18,6 +18,7 @@ RSpec.configure do |config|
 
   # Include test helpers
   config.include TestHelpers
+  config.include SkeinHelpers
 
   # Configure output format
   config.color = true
