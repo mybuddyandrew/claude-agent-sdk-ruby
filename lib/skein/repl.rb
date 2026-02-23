@@ -102,7 +102,7 @@ module Skein
       puts
     end
 
-    # Called by the bridge (via Agent) when a built-in tool needs approval.
+    # Called by the SDK (via Agent) when a tool needs approval.
     # In the REPL, this is synchronous — ask the user directly.
     def request_approval(_chat_id, tool_name, tool_input)
       stop_spinner!

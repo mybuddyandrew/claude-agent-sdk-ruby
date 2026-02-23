@@ -29,7 +29,7 @@ module Skein
     end
 
     # Called after a task completes successfully.
-    # task: the task hash, result: the bridge result text
+    # task: the task hash, result: the SDK result text
     def after_task(task, result)
       # no-op by default
     end

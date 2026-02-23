@@ -1,8 +1,9 @@
 require "claude_agent_sdk"
 require "async"
+require "timeout"
 
 module Skein
-  # SdkClient wraps the Ruby Claude Agent SDK, replacing the Python bridge.
+  # SdkClient wraps the Ruby Claude Agent SDK.
   #
   # It handles:
   # - Task execution via ClaudeAgentSDK::Client (with permission callbacks)
@@ -138,19 +139,21 @@ module Skein
       prompt = extraction_prompt(extract_type, conversation_text)
 
       result = nil
-      ClaudeAgentSDK.query(
-        prompt: prompt,
-        options: ClaudeAgentSDK::ClaudeAgentOptions.new(
-          cli_path: CLI_PATH,
-          model: @config.model,
-          system_prompt: "You are a precise extraction assistant. Return only the requested structured data.",
-          output_format: { type: "json_schema", schema: schema },
-          max_turns: 2,
-          permission_mode: "bypassPermissions",
-        )
-      ) do |msg|
-        if msg.is_a?(ClaudeAgentSDK::ResultMessage) && msg.structured_output
-          result = msg.structured_output
+      Timeout.timeout(timeout) do
+        ClaudeAgentSDK.query(
+          prompt: prompt,
+          options: ClaudeAgentSDK::ClaudeAgentOptions.new(
+            cli_path: CLI_PATH,
+            model: @config.model,
+            system_prompt: "You are a precise extraction assistant. Return only the requested structured data.",
+            output_format: { type: "json_schema", schema: schema },
+            max_turns: 2,
+            permission_mode: "bypassPermissions",
+          )
+        ) do |msg|
+          if msg.is_a?(ClaudeAgentSDK::ResultMessage) && msg.structured_output
+            result = msg.structured_output
+          end
         end
       end
 
@@ -166,19 +169,21 @@ module Skein
     # Returns structured output hash or nil.
     def send_decompose(input_text, timeout: 30)
       result = nil
-      ClaudeAgentSDK.query(
-        prompt: decompose_prompt(input_text),
-        options: ClaudeAgentSDK::ClaudeAgentOptions.new(
-          cli_path: CLI_PATH,
-          model: @config.model,
-          system_prompt: "You are a task planning assistant. Analyze whether the request should be decomposed.",
-          output_format: { type: "json_schema", schema: decompose_schema },
-          max_turns: 2,
-          permission_mode: "bypassPermissions",
-        )
-      ) do |msg|
-        if msg.is_a?(ClaudeAgentSDK::ResultMessage) && msg.structured_output
-          result = msg.structured_output
+      Timeout.timeout(timeout) do
+        ClaudeAgentSDK.query(
+          prompt: decompose_prompt(input_text),
+          options: ClaudeAgentSDK::ClaudeAgentOptions.new(
+            cli_path: CLI_PATH,
+            model: @config.model,
+            system_prompt: "You are a task planning assistant. Analyze whether the request should be decomposed.",
+            output_format: { type: "json_schema", schema: decompose_schema },
+            max_turns: 2,
+            permission_mode: "bypassPermissions",
+          )
+        ) do |msg|
+          if msg.is_a?(ClaudeAgentSDK::ResultMessage) && msg.structured_output
+            result = msg.structured_output
+          end
         end
       end
 
@@ -227,7 +232,7 @@ module Skein
             end
           end
 
-          # Execute directly in Ruby — no bridge delegation!
+          # Execute directly in-process via ToolExecutor
           result = executor.execute(mcp_name, string_args,
                                     chat_id: chat_id_ref.call,
                                     task_id: task_id_ref.call)

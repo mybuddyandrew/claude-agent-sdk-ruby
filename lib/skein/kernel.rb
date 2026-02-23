@@ -85,7 +85,7 @@ module Skein
       log "Telegram send error: #{e.message}"
     end
 
-    # Called by the bridge (via Agent) when a built-in tool needs approval.
+    # Called by the SDK (via Agent) when a tool needs approval.
     # For Telegram, this blocks while polling for /approve or /deny.
     def request_approval(chat_id, tool_name, tool_input)
       input_summary = tool_input.is_a?(Hash) ? JSON.generate(tool_input) : tool_input.to_s
@@ -171,7 +171,7 @@ module Skein
     end
 
     def run_heartbeat(timer)
-      # Heartbeat now goes through the bridge like any other task
+      # Heartbeat goes through the SDK like any other task
       checklist = begin
         File.read(@config.heartbeat_path)
       rescue Errno::ENOENT
@@ -182,7 +182,7 @@ module Skein
         source: "heartbeat", lane: Lane::L0_INTERRUPT,
         input_text: "Run heartbeat check:\n#{checklist}"
       )
-      # The dispatcher will pick it up and process it through the bridge
+      # The dispatcher will pick it up and process it through the SDK
     end
 
     def run_custom_timer(timer)
@@ -226,7 +226,7 @@ module Skein
         })
 
         # Approval commands are now handled inline in request_approval
-        # (the bridge blocks waiting for the response)
+        # (request_approval blocks waiting for the response)
         unless text.start_with?("/approve", "/deny")
           @tasks.create(source: "telegram", chat_id: chat_id, input_text: text)
         end

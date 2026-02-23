@@ -36,7 +36,7 @@ module Skein
     end
 
     # Register all skill tools with the ToolExecutor.
-    # Returns an array of tool definitions (for bridge registration).
+    # Returns an array of tool definitions (for MCP registration).
     def register_tools!(tool_executor)
       definitions = []
 

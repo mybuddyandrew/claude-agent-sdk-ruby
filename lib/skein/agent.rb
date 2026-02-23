@@ -191,7 +191,7 @@ module Skein
     end
 
     # Consolidate memories when the count exceeds the threshold.
-    # Sends all memories to the bridge for deduplication and merging,
+    # Sends all memories to the SDK for deduplication and merging,
     # then replaces the entire memory store with the consolidated result.
     def consolidate_memories!
       threshold = @config.memory_consolidation_threshold
@@ -204,7 +204,7 @@ module Skein
       all_memories = @memory.top(limit: current_count + 100)
       return if all_memories.empty?
 
-      # Format for the bridge
+      # Format for extraction
       lines = all_memories.map do |m|
         tag = m["category"] ? " [#{m['category']}]" : ""
         "- #{m['content']}#{tag}"

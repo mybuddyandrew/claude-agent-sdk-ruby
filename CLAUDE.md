@@ -108,7 +108,7 @@ For extraction/decomposition, it uses `ClaudeAgentSDK.query()` with `output_form
 - SQLite3 for persistence, in-memory `:memory:` for tests
 - Domain tools are modules with `.definition`, `.requires_approval?`, `.execute(input, **)`
 - Skills are classes inheriting from `Skein::Skill` with hooks
-- `SdkClient::SdkError` is the unified error type (replaces old BridgeClient errors)
+- `SdkClient::SdkError` is the unified error type
 - Ruby 4.0 specifics: `SQLite3::Database#execute` returns frozen arrays (use `sort_by` not `sort_by!`)
 
 ### Testing
