@@ -69,7 +69,7 @@ Claude Agent SDK (lib/claude_agent_sdk/)
 ### Running Skein Tests
 
 ```bash
-bundle exec rspec spec/skein/                     # All Skein specs (377 examples)
+bundle exec rspec spec/skein/                     # All Skein specs (379 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (hits real CLI)
 ```
@@ -99,6 +99,9 @@ memories, and lessons while the agent runs.
 
 It also includes a run timeline replay panel for any task id so you can inspect
 event-by-event execution details.
+
+Run Diff Mode is also built in so you can compare two task runs side-by-side
+with metric deltas and event-type deltas.
 
 For tools that require approval (for example `Bash` or file writes), approve or
 deny directly in the browser approval panel.

@@ -106,6 +106,39 @@ RSpec.describe Skein::ObserverServer do
     expect(timeline).to be_nil
   end
 
+  it "builds run diff with metric and event deltas" do
+    left_id = @db.get_first_row("SELECT id FROM tasks LIMIT 1")["id"]
+
+    @db.execute(
+      "INSERT INTO tasks (state, source, lane, chat_id, input_text, result_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ["completed", "web", 2, "chat-1", "second task", "all done", "2026-02-24T00:00:00.000", "2026-02-24T00:00:03.000"]
+    )
+    right_id = @db.last_insert_row_id
+
+    @db.execute("INSERT INTO events (type, task_id, payload) VALUES (?, ?, ?)", ["sdk_request_sent", right_id, "{}"])
+    @db.execute("INSERT INTO events (type, task_id, payload) VALUES (?, ?, ?)", ["sdk_response_received", right_id, "{}"])
+    @db.execute(
+      "INSERT INTO conversation_turns (chat_id, role, content, task_id) VALUES (?, ?, ?, ?)",
+      ["chat-1", "assistant", "completed", right_id]
+    )
+
+    diff = @server.send(:build_run_diff, db: @db, left_task_id: left_id, right_task_id: right_id)
+
+    expect(diff[:left][:task]["id"]).to eq(left_id)
+    expect(diff[:right][:task]["id"]).to eq(right_id)
+    expect(diff[:diff][:changed_fields]).to include("state", "lane", "source")
+    expect(diff[:diff][:metric_delta][:output_length]).to be > 0
+    expect(diff[:diff][:event_count_delta]["sdk_response_received"]).to eq(1)
+  end
+
+  it "returns nil run diff when one task is missing" do
+    left_id = @db.get_first_row("SELECT id FROM tasks LIMIT 1")["id"]
+
+    diff = @server.send(:build_run_diff, db: @db, left_task_id: left_id, right_task_id: 999_999)
+
+    expect(diff).to be_nil
+  end
+
   it "falls back to raw payload for invalid JSON" do
     row = { "id" => 1, "payload" => "not-json" }
     parsed = @server.send(:parse_event_row, row)

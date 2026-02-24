@@ -1,6 +1,7 @@
 require "json"
 require "webrick"
 require "thread"
+require "time"
 
 module Skein
   class ObserverServer
@@ -35,6 +36,7 @@ module Skein
       server.mount_proc("/") { |_req, res| respond_dashboard(res) }
       server.mount_proc("/api/snapshot") { |req, res| respond_snapshot(req, res) }
       server.mount_proc("/api/run_timeline") { |req, res| respond_run_timeline(req, res) }
+      server.mount_proc("/api/run_diff") { |req, res| respond_run_diff(req, res) }
       server.mount_proc("/api/chat_state") { |req, res| respond_chat_state(req, res) }
       server.mount_proc("/api/chat_send") { |req, res| respond_chat_send(req, res) }
       server.mount_proc("/api/chat_approval") { |req, res| respond_chat_approval(req, res) }
@@ -115,6 +117,34 @@ module Skein
       res.status = 200
       res["Content-Type"] = "application/json; charset=utf-8"
       res.body = JSON.generate(timeline)
+    ensure
+      db&.close
+    end
+
+    def respond_run_diff(req, res)
+      left_task_id = req.query["left_task_id"].to_i
+      right_task_id = req.query["right_task_id"].to_i
+
+      if left_task_id <= 0 || right_task_id <= 0
+        res.status = 422
+        res["Content-Type"] = "application/json; charset=utf-8"
+        res.body = JSON.generate(error: "left_task_id and right_task_id are required")
+        return
+      end
+
+      db = DB.new(@config.db_path, busy_timeout_ms: @config.db_busy_timeout_ms)
+      diff = build_run_diff(db: db, left_task_id: left_task_id, right_task_id: right_task_id)
+
+      if diff.nil?
+        res.status = 404
+        res["Content-Type"] = "application/json; charset=utf-8"
+        res.body = JSON.generate(error: "one or both tasks not found")
+        return
+      end
+
+      res.status = 200
+      res["Content-Type"] = "application/json; charset=utf-8"
+      res.body = JSON.generate(diff)
     ensure
       db&.close
     end
@@ -379,6 +409,88 @@ module Skein
       }
     end
 
+    def build_run_diff(db:, left_task_id:, right_task_id:)
+      left = build_run_snapshot(db: db, task_id: left_task_id)
+      right = build_run_snapshot(db: db, task_id: right_task_id)
+      return nil unless left && right
+
+      changed_fields = %w[state lane source chat_id].select do |field|
+        left[:task][field] != right[:task][field]
+      end
+
+      all_event_types = (left[:event_counts].keys + right[:event_counts].keys).uniq.sort
+      event_count_delta = all_event_types.to_h do |type|
+        [type, right[:event_counts].fetch(type, 0) - left[:event_counts].fetch(type, 0)]
+      end
+
+      {
+        left: left,
+        right: right,
+        diff: {
+          changed_fields: changed_fields,
+          metric_delta: {
+            duration_seconds: right[:metrics][:duration_seconds] - left[:metrics][:duration_seconds],
+            input_length: right[:metrics][:input_length] - left[:metrics][:input_length],
+            output_length: right[:metrics][:output_length] - left[:metrics][:output_length],
+            event_count: right[:metrics][:event_count] - left[:metrics][:event_count],
+            turn_count: right[:metrics][:turn_count] - left[:metrics][:turn_count],
+          },
+          event_count_delta: event_count_delta,
+        },
+      }
+    end
+
+    def build_run_snapshot(db:, task_id:)
+      task = db.get_first_row(
+        "SELECT id, state, lane, source, chat_id, input_text, result_text, error_message, created_at, updated_at " \
+        "FROM tasks WHERE id = ?",
+        [task_id]
+      )
+      return nil unless task
+
+      event_rows = db.execute(
+        "SELECT type FROM events WHERE task_id = ?",
+        [task_id]
+      )
+      event_counts = event_rows.each_with_object(Hash.new(0)) { |row, h| h[row["type"]] += 1 }
+
+      turns = db.execute(
+        "SELECT role, content FROM conversation_turns WHERE task_id = ? ORDER BY id ASC",
+        [task_id]
+      )
+
+      duration_seconds = time_diff_seconds(task["created_at"], task["updated_at"])
+
+      {
+        task: task,
+        metrics: {
+          duration_seconds: duration_seconds,
+          input_length: task["input_text"].to_s.length,
+          output_length: task["result_text"].to_s.length,
+          event_count: event_rows.size,
+          turn_count: turns.size,
+        },
+        event_counts: event_counts,
+        previews: {
+          input_text: task["input_text"].to_s[0, 500],
+          result_text: task["result_text"].to_s[0, 500],
+          error_message: task["error_message"].to_s[0, 500],
+          last_turn: turns.last && { "role" => turns.last["role"], "content" => turns.last["content"].to_s[0, 300] },
+        },
+      }
+    end
+
+    def time_diff_seconds(start_at, end_at)
+      return 0.0 if start_at.nil? || end_at.nil?
+
+      start_t = Time.parse(start_at)
+      end_t = Time.parse(end_at)
+      diff = end_t - start_t
+      diff.negative? ? 0.0 : diff.round(3)
+    rescue ArgumentError
+      0.0
+    end
+
     def scalar_count(db, table)
       row = db.get_first_row("SELECT COUNT(*) AS cnt FROM #{table}")
       row["cnt"].to_i
@@ -628,6 +740,19 @@ module Skein
             .timeline-step:last-child { border-bottom: 0; }
             .timeline-step .label { font-weight: 600; }
             .timeline-step .detail { margin-top: 4px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+            .diff-controls { display: grid; grid-template-columns: auto 1fr auto 1fr auto; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: #faf7ef; align-items: center; }
+            .diff-controls input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font: inherit; }
+            .diff-controls button { border: 0; border-radius: 6px; padding: 6px 10px; background: var(--accent); color: white; cursor: pointer; }
+            .diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+            .diff-card { border: 1px solid var(--border); border-radius: 10px; background: #fffefb; padding: 8px; }
+            .diff-card h3 { margin: 0 0 6px 0; font-size: 13px; }
+            .diff-row { display: flex; justify-content: space-between; gap: 6px; border-bottom: 1px solid #f4f1eb; padding: 4px 0; font-size: 12px; }
+            .diff-row:last-child { border-bottom: 0; }
+            .diff-delta { padding: 0 10px 10px; }
+            .diff-delta table { width: 100%; border-collapse: collapse; }
+            .diff-delta th, .diff-delta td { text-align: left; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid #f4f1eb; }
+            .delta-pos { color: #0f766e; font-weight: 600; }
+            .delta-neg { color: #b91c1c; font-weight: 600; }
             main { padding: 18px 22px 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
             section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
             section h2 { margin: 0; padding: 10px 12px; font-size: 14px; border-bottom: 1px solid var(--border); background: #faf7ef; }
@@ -636,7 +761,11 @@ module Skein
             th { color: var(--muted); font-weight: 600; }
             .mono { font-family: ui-monospace, Menlo, monospace; }
             .scroll { max-height: 42vh; overflow: auto; }
-            @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+            @media (max-width: 980px) {
+              main { grid-template-columns: 1fr; }
+              .diff-controls { grid-template-columns: 1fr; }
+              .diff-grid { grid-template-columns: 1fr; }
+            }
           </style>
         </head>
         <body>
@@ -691,6 +820,17 @@ module Skein
               </div>
               <div id="timelineSteps" class="scroll"></div>
             </section>
+            <section>
+              <h2>Run Diff Mode</h2>
+              <div class="diff-controls">
+                <span class="muted">Left</span>
+                <input id="diffLeftTaskId" type="number" min="1" placeholder="Task id" />
+                <span class="muted">Right</span>
+                <input id="diffRightTaskId" type="number" min="1" placeholder="Task id" />
+                <button id="diffLoad">Compare</button>
+              </div>
+              <div id="diffResult" class="scroll"></div>
+            </section>
           </main>
           <script>
             const countsEl = document.getElementById("counts")
@@ -710,6 +850,10 @@ module Skein
             const timelineTaskIdEl = document.getElementById("timelineTaskId")
             const timelineLoadEl = document.getElementById("timelineLoad")
             const timelineStepsEl = document.getElementById("timelineSteps")
+            const diffLeftTaskIdEl = document.getElementById("diffLeftTaskId")
+            const diffRightTaskIdEl = document.getElementById("diffRightTaskId")
+            const diffLoadEl = document.getElementById("diffLoad")
+            const diffResultEl = document.getElementById("diffResult")
 
             function escapeHtml(v) {
               return String(v ?? "")
@@ -744,10 +888,16 @@ module Skein
                 const task = rows[idx]
                 if (!task) return
                 row.style.cursor = "pointer"
-                row.title = "Click to load timeline"
-                row.addEventListener("click", () => {
+                row.title = "Click: timeline + set left diff ID. Shift+Click: set right diff ID."
+                row.addEventListener("click", (evt) => {
                   timelineTaskIdEl.value = task.id
                   loadTimeline(task.id)
+
+                  if (evt.shiftKey) {
+                    diffRightTaskIdEl.value = task.id
+                  } else {
+                    diffLeftTaskIdEl.value = task.id
+                  }
                 })
               })
             }
@@ -961,6 +1111,94 @@ module Skein
               }).join("")
             }
 
+            function renderRunDiff(data) {
+              const left = data.left || {}
+              const right = data.right || {}
+              const diff = data.diff || {}
+              const changed = (diff.changed_fields || []).join(", ") || "none"
+
+              const leftTask = left.task || {}
+              const rightTask = right.task || {}
+              const leftMetrics = left.metrics || {}
+              const rightMetrics = right.metrics || {}
+              const metricDelta = diff.metric_delta || {}
+              const eventDelta = diff.event_count_delta || {}
+
+              function row(label, a, b) {
+                return `<div class="diff-row"><span>${escapeHtml(label)}</span><span class="mono">${escapeHtml(a)} → ${escapeHtml(b)}</span></div>`
+              }
+
+              function deltaClass(v) {
+                if (v > 0) return "delta-pos"
+                if (v < 0) return "delta-neg"
+                return ""
+              }
+
+              function deltaText(v) {
+                if (v > 0) return `+${v}`
+                return String(v)
+              }
+
+              const eventRows = Object.entries(eventDelta)
+                .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td class="mono ${deltaClass(v)}">${escapeHtml(deltaText(v))}</td></tr>`)
+                .join("")
+
+              diffResultEl.innerHTML = `
+                <div class="diff-grid">
+                  <div class="diff-card">
+                    <h3>Left Task #${escapeHtml(leftTask.id || "")}</h3>
+                    ${row("state", leftTask.state || "", rightTask.state || "")}
+                    ${row("lane", leftTask.lane || "", rightTask.lane || "")}
+                    ${row("source", leftTask.source || "", rightTask.source || "")}
+                    ${row("duration(s)", leftMetrics.duration_seconds || 0, rightMetrics.duration_seconds || 0)}
+                    ${row("input len", leftMetrics.input_length || 0, rightMetrics.input_length || 0)}
+                    ${row("output len", leftMetrics.output_length || 0, rightMetrics.output_length || 0)}
+                    ${row("events", leftMetrics.event_count || 0, rightMetrics.event_count || 0)}
+                    ${row("turns", leftMetrics.turn_count || 0, rightMetrics.turn_count || 0)}
+                  </div>
+                  <div class="diff-card">
+                    <h3>Right Task #${escapeHtml(rightTask.id || "")}</h3>
+                    <div class="diff-row"><span>changed fields</span><span>${escapeHtml(changed)}</span></div>
+                    <div class="diff-row"><span>duration Δ</span><span class="mono ${deltaClass(metricDelta.duration_seconds || 0)}">${escapeHtml(deltaText(metricDelta.duration_seconds || 0))}</span></div>
+                    <div class="diff-row"><span>input Δ</span><span class="mono ${deltaClass(metricDelta.input_length || 0)}">${escapeHtml(deltaText(metricDelta.input_length || 0))}</span></div>
+                    <div class="diff-row"><span>output Δ</span><span class="mono ${deltaClass(metricDelta.output_length || 0)}">${escapeHtml(deltaText(metricDelta.output_length || 0))}</span></div>
+                    <div class="diff-row"><span>events Δ</span><span class="mono ${deltaClass(metricDelta.event_count || 0)}">${escapeHtml(deltaText(metricDelta.event_count || 0))}</span></div>
+                    <div class="diff-row"><span>turns Δ</span><span class="mono ${deltaClass(metricDelta.turn_count || 0)}">${escapeHtml(deltaText(metricDelta.turn_count || 0))}</span></div>
+                    <div class="diff-row"><span>error</span><span>${escapeHtml(rightTask.error_message || "none")}</span></div>
+                  </div>
+                </div>
+                <div class="diff-delta">
+                  <table>
+                    <thead><tr><th>Event Type</th><th>Right - Left</th></tr></thead>
+                    <tbody>${eventRows || `<tr><td colspan="2" class="muted">No event delta</td></tr>`}</tbody>
+                  </table>
+                </div>
+              `
+            }
+
+            async function loadRunDiff() {
+              const leftId = Number(diffLeftTaskIdEl.value)
+              const rightId = Number(diffRightTaskIdEl.value)
+              if (!leftId || !rightId) {
+                diffResultEl.innerHTML = `<div class="timeline-step muted">Enter both task ids to compare.</div>`
+                return
+              }
+
+              diffResultEl.innerHTML = `<div class="timeline-step muted">Comparing task #${leftId} and #${rightId}...</div>`
+              try {
+                const res = await fetch(`/api/run_diff?left_task_id=${leftId}&right_task_id=${rightId}`)
+                if (!res.ok) {
+                  const body = await res.json().catch(() => ({}))
+                  throw new Error(body.error || `HTTP ${res.status}`)
+                }
+                const data = await res.json()
+                renderRunDiff(data)
+              } catch (err) {
+                diffResultEl.innerHTML = `<div class="timeline-step muted">Run diff error: ${escapeHtml(err.message)}</div>`
+              }
+            }
+
             async function refresh() {
               try {
                 const [snapshotRes, chatRes] = await Promise.all([
@@ -997,6 +1235,7 @@ module Skein
               }
             })
             timelineLoadEl.addEventListener("click", () => loadTimeline())
+            diffLoadEl.addEventListener("click", () => loadRunDiff())
 
             refresh()
             setInterval(refresh, 1000)
