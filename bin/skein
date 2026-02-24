@@ -32,16 +32,20 @@ when "repl", nil
   Skein::Repl.new.run
 when "kernel"
   Skein::Kernel.new.run
+when "watch", "ui"
+  Skein::ObserverServer.new.run
 when "status"
   print_status
 when "version", "-v", "--version"
   puts "Skein #{Skein::VERSION}"
 else
-  warn "Usage: skein [repl|kernel|status|version]"
+  warn "Usage: skein [repl|kernel|watch|ui|status|version]"
   warn ""
   warn "Commands:"
   warn "  repl      Interactive CLI (default)"
   warn "  kernel    Telegram-backed daemon"
+  warn "  watch     Launch browser observer UI"
+  warn "  ui        Alias for watch"
   warn "  status    Show DB/task/memory/lesson counts"
   warn "  version   Print version"
   exit 1

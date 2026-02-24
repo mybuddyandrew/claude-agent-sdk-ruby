@@ -40,6 +40,6 @@ RSpec.describe "bin/skein" do
     _stdout, stderr, status = Open3.capture3(ruby_bin, bin_path, "wat", chdir: repo_root)
 
     expect(status.success?).to be(false)
-    expect(stderr).to include("Usage: skein [repl|kernel|status|version]")
+    expect(stderr).to include("Usage: skein [repl|kernel|watch|ui|status|version]")
   end
 end

@@ -69,7 +69,7 @@ Claude Agent SDK (lib/claude_agent_sdk/)
 ### Running Skein Tests
 
 ```bash
-bundle exec rspec spec/skein/                     # All Skein specs (366 examples)
+bundle exec rspec spec/skein/                     # All Skein specs (369 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (hits real CLI)
 ```
@@ -80,8 +80,12 @@ The `bin/skein` entry point supports:
 
 - `bin/skein` or `bin/skein repl` — interactive REPL
 - `bin/skein kernel` — Telegram-backed runtime loop
+- `bin/skein watch` / `bin/skein ui` — browser observer UI for live agent activity
 - `bin/skein status` — quick DB/task/memory/lesson counts
 - `bin/skein version` — print Skein version
+
+Run `bin/skein watch` and open `http://127.0.0.1:4310` to monitor task state,
+events, and conversation turns while another process runs the agent.
 
 ### REPL Shortcuts
 
@@ -132,6 +136,8 @@ When running `bin/skein` in REPL mode, these slash commands are available:
 | `SKEIN_TELEGRAM_POST_READ_TIMEOUT` | `30` | HTTP read timeout for Telegram send-message calls |
 | `SKEIN_TELEGRAM_POLL_READ_TIMEOUT_BUFFER` | `5` | Extra read timeout seconds added to long-poll requests |
 | `SKEIN_EMBEDDING_BACKFILL_BATCH_SIZE` | `50` | Batch size used when backfilling missing memory embeddings |
+| `SKEIN_WATCH_HOST` | `127.0.0.1` | Bind host for observer UI server |
+| `SKEIN_WATCH_PORT` | `4310` | Bind port for observer UI server |
 | `SKEIN_AUTO_APPROVE` | _(unset)_ | Comma-separated auto-approval rules (e.g. `Bash:ls *`) |
 
 ---

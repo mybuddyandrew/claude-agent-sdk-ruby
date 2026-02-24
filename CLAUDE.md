@@ -11,15 +11,15 @@ This repo ships Skein as the primary runtime and includes two integrated layers:
 
 **Runtime:** Ruby 4.0.0 (via asdf). Claude Code CLI 2.0.0+ at `~/.local/bin/claude` (native binary, uses Max subscription — no API key needed).
 
-**Dependencies:** `async` (~2.0), `mcp` (~0.4), `sqlite3` (~2.9), `sqlite-vec` (~0.1), `informers` (~1.2)
+**Dependencies:** `async` (~2.0), `mcp` (~0.4), `sqlite3` (~2.9), `sqlite-vec` (~0.1), `informers` (~1.2), `webrick` (~1.9)
 
 ## Common Commands
 
 ```bash
 bundle install                                    # Install dependencies
-bundle exec rspec                                 # Run all unit tests (587 examples)
+bundle exec rspec                                 # Run all unit tests (590 examples)
 bundle exec rspec spec/unit/                      # SDK specs only (221 examples)
-bundle exec rspec spec/skein/                     # Skein specs only (366 examples)
+bundle exec rspec spec/skein/                     # Skein specs only (369 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 bundle exec rspec spec/skein/agent_spec.rb:42     # Single test by line number
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live SDK tests (hits real CLI)

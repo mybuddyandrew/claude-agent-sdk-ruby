@@ -23,6 +23,7 @@ require_relative "skein/tools/remember"
 require_relative "skein/tools/recall"
 require_relative "skein/kernel"
 require_relative "skein/repl"
+require_relative "skein/observer_server"
 
 module Skein
 end

@@ -34,4 +34,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'sqlite3', '~> 2.9'
   spec.add_dependency 'sqlite-vec', '~> 0.1'
   spec.add_dependency 'informers', '~> 1.2'
+  spec.add_dependency 'webrick', '~> 1.9'
 end
