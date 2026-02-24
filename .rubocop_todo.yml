@@ -11,20 +11,20 @@
 # SupportedStyles: Gemfile, gems.rb, gemspec
 Gemspec/DevelopmentDependencies:
   Exclude:
-    - 'claude-agent-sdk.gemspec'
+    - 'skein.gemspec'
 
 # Offense count: 1
 # This cop supports safe autocorrection (--autocorrect).
 # Configuration parameters: Severity.
 Gemspec/RequireMFA:
   Exclude:
-    - 'claude-agent-sdk.gemspec'
+    - 'skein.gemspec'
 
 # Offense count: 1
 # Configuration parameters: Severity.
 Gemspec/RequiredRubyVersion:
   Exclude:
-    - 'claude-agent-sdk.gemspec'
+    - 'skein.gemspec'
 
 # Offense count: 6
 # This cop supports safe autocorrection (--autocorrect).
