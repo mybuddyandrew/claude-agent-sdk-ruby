@@ -4,19 +4,45 @@
 require "bundler/setup"
 require "skein"
 
+def print_status
+  config = Skein::Config.new
+  db = Skein::DB.new(config.db_path, busy_timeout_ms: config.db_busy_timeout_ms)
+
+  counts = {
+    tasks: db.get_first_row("SELECT COUNT(*) AS cnt FROM tasks")["cnt"],
+    memories: db.get_first_row("SELECT COUNT(*) AS cnt FROM memories")["cnt"],
+    lessons: db.get_first_row("SELECT COUNT(*) AS cnt FROM lessons")["cnt"],
+    timers: db.get_first_row("SELECT COUNT(*) AS cnt FROM timers")["cnt"],
+    turns: db.get_first_row("SELECT COUNT(*) AS cnt FROM conversation_turns")["cnt"],
+  }
+
+  puts "Skein status"
+  puts "  db_path: #{config.db_path}"
+  puts "  tasks: #{counts[:tasks]}"
+  puts "  memories: #{counts[:memories]}"
+  puts "  lessons: #{counts[:lessons]}"
+  puts "  timers: #{counts[:timers]}"
+  puts "  turns: #{counts[:turns]}"
+ensure
+  db&.close
+end
+
 case ARGV[0]
 when "repl", nil
   Skein::Repl.new.run
 when "kernel"
   Skein::Kernel.new.run
+when "status"
+  print_status
 when "version", "-v", "--version"
   puts "Skein #{Skein::VERSION}"
 else
-  warn "Usage: skein [repl|kernel|version]"
+  warn "Usage: skein [repl|kernel|status|version]"
   warn ""
   warn "Commands:"
   warn "  repl      Interactive CLI (default)"
   warn "  kernel    Telegram-backed daemon"
+  warn "  status    Show DB/task/memory/lesson counts"
   warn "  version   Print version"
   exit 1
 end

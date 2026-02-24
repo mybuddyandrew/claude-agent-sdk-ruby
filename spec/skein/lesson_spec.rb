@@ -30,6 +30,13 @@ RSpec.describe Skein::Lesson do
     expect(id2).to eq(id1)
   end
 
+  it "store deduplicates case and surrounding whitespace variants" do
+    id1 = @lessons.store(content: "Be concise")
+    id2 = @lessons.store(content: "  be concise  ")
+    expect(@lessons.count).to eq(1)
+    expect(id2).to eq(id1)
+  end
+
   it "store dedup bumps applied count" do
     @lessons.store(content: "Be concise")
     @lessons.store(content: "Be concise")

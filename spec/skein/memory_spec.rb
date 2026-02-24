@@ -28,6 +28,13 @@ RSpec.describe Skein::Memory do
     expect(id2).to eq(id1)
   end
 
+  it "store deduplicates case and surrounding whitespace variants" do
+    id1 = @memory.store(content: "User likes Ruby")
+    id2 = @memory.store(content: "  user likes ruby  ")
+    expect(@memory.count).to eq(1)
+    expect(id2).to eq(id1)
+  end
+
   it "store dedup bumps access count" do
     @memory.store(content: "User's name is Andrew")
     @memory.store(content: "User's name is Andrew")

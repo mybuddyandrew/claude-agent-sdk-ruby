@@ -280,6 +280,25 @@ module Skein
       end
     end
 
+    # Clear persisted Claude session for a chat.
+    # Useful when the user wants a fresh session in REPL/CLI.
+    def clear_session!(chat_id)
+      return unless chat_id
+
+      @db.execute("DELETE FROM sessions WHERE chat_id = ?", [chat_id])
+      @events.append(type: "session_cleared", payload: { chat_id: chat_id })
+    end
+
+    # Clear conversation turns, summaries, and session for a chat.
+    def clear_context!(chat_id)
+      return unless chat_id
+
+      @db.execute("DELETE FROM conversation_turns WHERE chat_id = ?", [chat_id])
+      @db.execute("DELETE FROM conversation_summaries WHERE chat_id = ?", [chat_id])
+      clear_session!(chat_id)
+      @events.append(type: "conversation_cleared", payload: { chat_id: chat_id })
+    end
+
     private
 
     # --- SDK Streaming ---

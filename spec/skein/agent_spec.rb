@@ -258,6 +258,73 @@ RSpec.describe Skein::Agent do
     end
   end
 
+  describe "session and context management" do
+    it "clears stored session for a chat" do
+      sdk_client = MockSdkClient.new
+      agent = build_agent(sdk_client: sdk_client)
+
+      @db.execute(
+        "INSERT INTO sessions (chat_id, session_id) VALUES (?, ?)",
+        ["test_chat", "sess-123"]
+      )
+
+      existing = @db.get_first_row("SELECT session_id FROM sessions WHERE chat_id = ?", ["test_chat"])
+      expect(existing["session_id"]).to eq("sess-123")
+
+      agent.clear_session!("test_chat")
+
+      cleared = @db.get_first_row("SELECT session_id FROM sessions WHERE chat_id = ?", ["test_chat"])
+      expect(cleared).to be_nil
+      events = @events.recent(type: "session_cleared", limit: 1)
+      expect(events.size).to eq(1)
+      expect(events[0]["payload"]["chat_id"]).to eq("test_chat")
+    end
+
+    it "clears turns and summary for one chat only" do
+      sdk_client = MockSdkClient.new
+      agent = build_agent(sdk_client: sdk_client)
+
+      agent.store_turn(chat_id: "test_chat", role: "user", content: "hello")
+      agent.store_turn(chat_id: "other_chat", role: "user", content: "hi")
+      @db.execute(
+        "INSERT INTO conversation_summaries (chat_id, summary, turns_summarized) VALUES (?, ?, ?)",
+        ["test_chat", "summary text", 3]
+      )
+      @db.execute(
+        "INSERT INTO conversation_summaries (chat_id, summary, turns_summarized) VALUES (?, ?, ?)",
+        ["other_chat", "other summary", 1]
+      )
+
+      agent.clear_context!("test_chat")
+
+      test_chat_turns = @db.get_first_row(
+        "SELECT COUNT(*) AS cnt FROM conversation_turns WHERE chat_id = ?",
+        ["test_chat"]
+      )
+      other_chat_turns = @db.get_first_row(
+        "SELECT COUNT(*) AS cnt FROM conversation_turns WHERE chat_id = ?",
+        ["other_chat"]
+      )
+      expect(test_chat_turns["cnt"]).to eq(0)
+      expect(other_chat_turns["cnt"]).to eq(1)
+
+      test_summary = @db.get_first_row(
+        "SELECT * FROM conversation_summaries WHERE chat_id = ?",
+        ["test_chat"]
+      )
+      other_summary = @db.get_first_row(
+        "SELECT * FROM conversation_summaries WHERE chat_id = ?",
+        ["other_chat"]
+      )
+      expect(test_summary).to be_nil
+      expect(other_summary).not_to be_nil
+
+      events = @events.recent(type: "conversation_cleared", limit: 1)
+      expect(events.size).to eq(1)
+      expect(events[0]["payload"]["chat_id"]).to eq("test_chat")
+    end
+  end
+
   # --- Error handling ---
 
   describe "error handling" do

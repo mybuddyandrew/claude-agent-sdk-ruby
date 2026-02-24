@@ -129,6 +129,8 @@ module Skein
     private
 
     def handle_input(input)
+      return if handle_command(input)
+
       @events.append(type: "cli_message_received", payload: { text: input })
 
       task_id = @tasks.create(source: "cli", chat_id: CHAT_ID, input_text: input)
@@ -143,6 +145,194 @@ module Skein
       @agent.process_task(task)
 
       prompt_for_rating(task_id)
+    end
+
+    # --- Slash Commands ---
+
+    def handle_command(input)
+      return false unless input.start_with?("/")
+
+      cmd, rest = input.split(/\s+/, 2)
+
+      case cmd
+      when "/help"
+        show_help
+      when "/status"
+        show_status
+      when "/memories"
+        show_memories(rest)
+      when "/forget-memory"
+        forget_memory(rest)
+      when "/lessons"
+        show_lessons
+      when "/forget-lesson"
+        forget_lesson(rest)
+      when "/tasks"
+        show_tasks(rest)
+      when "/summary"
+        show_summary
+      when "/maintenance"
+        run_maintenance
+      when "/reindex-embeddings"
+        reindex_embeddings(rest)
+      when "/new-session"
+        clear_session
+      when "/clear-context"
+        clear_context
+      when "/quit", "/exit"
+        @running = false
+      else
+        puts "#{RED}Unknown command: #{cmd}. Type /help for available commands.#{RESET}"
+      end
+
+      true
+    end
+
+    def show_help
+      puts <<~HELP
+        #{BOLD}Skein REPL commands#{RESET}
+          /help           Show this help
+          /status         Show quick runtime stats
+          /memories [q]   Show recent memories (or search query q)
+          /forget-memory <id> Remove a memory by id
+          /lessons        Show top lessons
+          /forget-lesson <id> Remove a lesson by id
+          /tasks [state]  Show queued/running tasks (or a specific state)
+          /summary        Show stored conversation summary for this chat
+          /maintenance    Run maintenance hooks immediately
+          /reindex-embeddings [n] Backfill missing memory embeddings (optional batch size n)
+          /new-session    Clear Claude session for this REPL chat
+          /clear-context  Clear turns, summaries, and session for this REPL chat
+          /quit, /exit    Exit the REPL
+      HELP
+    end
+
+    def show_status
+      queued = @tasks.in_state("new", "running", "blocked").size
+      puts "#{BOLD}Status#{RESET}"
+      puts "  memories: #{@memory.count}"
+      puts "  lessons:  #{@lessons.count}"
+      puts "  queued:   #{queued}"
+      puts "  semantic search: #{@memory.semantic_enabled? ? 'enabled' : 'disabled'}"
+    end
+
+    def show_memories(query)
+      rows = if query && !query.strip.empty?
+        @memory.search(query: query, limit: 10)
+      else
+        @memory.recent(limit: 10)
+      end
+
+      if rows.empty?
+        puts "#{DIM}No memories found.#{RESET}"
+        return
+      end
+
+      puts "#{BOLD}Memories#{query && !query.strip.empty? ? " for: #{query}" : ''}#{RESET}"
+      rows.each do |m|
+        tag = m["category"] ? " [#{m['category']}]" : ""
+        puts "  - (##{m['id']}) #{m['content']}#{tag}"
+      end
+    end
+
+    def show_lessons
+      rows = @lessons.top(limit: 10)
+
+      if rows.empty?
+        puts "#{DIM}No lessons found.#{RESET}"
+        return
+      end
+
+      puts "#{BOLD}Lessons#{RESET}"
+      rows.each do |l|
+        tag = l["category"] ? " [#{l['category']}]" : ""
+        score = l["effectiveness"]
+        puts "  - (##{l['id']}) #{l['content']}#{tag} #{DIM}(score: #{score})#{RESET}"
+      end
+    end
+
+    def forget_memory(arg)
+      id = Integer(arg.to_s, exception: false)
+      unless id
+        puts "#{RED}Usage: /forget-memory <id>#{RESET}"
+        return
+      end
+
+      @memory.forget(id)
+      puts "#{GREEN}Forgot memory ##{id}.#{RESET}"
+    end
+
+    def forget_lesson(arg)
+      id = Integer(arg.to_s, exception: false)
+      unless id
+        puts "#{RED}Usage: /forget-lesson <id>#{RESET}"
+        return
+      end
+
+      @lessons.forget(id)
+      puts "#{GREEN}Forgot lesson ##{id}.#{RESET}"
+    end
+
+    def show_tasks(state)
+      rows = if state && !state.strip.empty?
+        @tasks.in_state(state)
+      else
+        @tasks.in_state("new", "running", "blocked", "waiting_for_input")
+      end
+
+      if rows.empty?
+        puts "#{DIM}No matching tasks.#{RESET}"
+        return
+      end
+
+      puts "#{BOLD}Tasks#{state && !state.strip.empty? ? " (#{state})" : ''}#{RESET}"
+      rows.first(20).each do |t|
+        text = (t["input_text"] || "").gsub(/\s+/, " ").strip
+        text = "(no input)" if text.empty?
+        text = "#{text[0..77]}..." if text.length > 80
+        puts "  - ##{t['id']} [#{t['state']}] lane=#{t['lane']} #{text}"
+      end
+    end
+
+    def show_summary
+      row = @db.get_first_row(
+        "SELECT summary, turns_summarized, updated_at FROM conversation_summaries WHERE chat_id = ?",
+        [CHAT_ID]
+      )
+      unless row
+        puts "#{DIM}No summary stored for this chat.#{RESET}"
+        return
+      end
+
+      puts "#{BOLD}Summary (#{row['turns_summarized']} turns summarized)#{RESET}"
+      puts row["summary"]
+      puts "#{DIM}updated: #{row['updated_at']}#{RESET}" if row["updated_at"]
+    end
+
+    def run_maintenance
+      @agent.maintenance!
+      puts "#{GREEN}Maintenance complete.#{RESET}"
+    end
+
+    def reindex_embeddings(arg)
+      batch_size = Integer(arg.to_s, exception: false) || @config.embedding_backfill_batch_size
+      if batch_size <= 0
+        puts "#{RED}Batch size must be > 0.#{RESET}"
+        return
+      end
+
+      count = @memory.backfill_embeddings(batch_size: batch_size)
+      puts "#{GREEN}Backfilled embeddings for #{count} memories.#{RESET}"
+    end
+
+    def clear_session
+      @agent.clear_session!(CHAT_ID)
+      puts "#{GREEN}Started a fresh session for this chat.#{RESET}"
+    end
+
+    def clear_context
+      @agent.clear_context!(CHAT_ID)
+      puts "#{GREEN}Cleared conversation context and session for this chat.#{RESET}"
     end
 
     # --- Spinner ---

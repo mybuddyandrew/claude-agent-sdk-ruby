@@ -10,7 +10,8 @@ module Skein
     def store(content:, category: nil, source_task_id: nil)
       # Avoid exact duplicates — bump applied_count instead
       existing = @db.get_first_row(
-        "SELECT id FROM lessons WHERE content = ?", [content]
+        "SELECT id FROM lessons WHERE LOWER(TRIM(content)) = LOWER(TRIM(?))",
+        [content]
       )
       if existing
         touch(existing["id"])

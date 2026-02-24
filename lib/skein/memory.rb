@@ -13,7 +13,8 @@ module Skein
     def store(content:, category: nil, source: "explicit", source_task_id: nil)
       # Avoid exact duplicates
       existing = @db.get_first_row(
-        "SELECT id FROM memories WHERE content = ?", [content]
+        "SELECT id FROM memories WHERE LOWER(TRIM(content)) = LOWER(TRIM(?))",
+        [content]
       )
       if existing
         touch(existing["id"])
