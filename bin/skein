@@ -3,6 +3,8 @@
 
 require "bundler/setup"
 require "skein"
+require "rbconfig"
+require "socket"
 
 def print_status
   config = Skein::Config.new
@@ -27,19 +29,8 @@ ensure
   db&.close
 end
 
-case ARGV[0]
-when "repl", nil
-  Skein::Repl.new.run
-when "kernel"
-  Skein::Kernel.new.run
-when "watch", "ui"
-  Skein::ObserverServer.new.run
-when "status"
-  print_status
-when "version", "-v", "--version"
-  puts "Skein #{Skein::VERSION}"
-else
-  warn "Usage: skein [repl|kernel|watch|ui|status|version]"
+def usage!
+  warn "Usage: skein [repl|kernel|watch|ui|status|version] [--watch]"
   warn ""
   warn "Commands:"
   warn "  repl      Interactive CLI (default)"
@@ -48,5 +39,102 @@ else
   warn "  ui        Alias for watch"
   warn "  status    Show DB/task/memory/lesson counts"
   warn "  version   Print version"
+  warn ""
+  warn "Flags:"
+  warn "  --watch   Run repl/kernel and launch observer UI"
   exit 1
+end
+
+def run_command(command)
+  case command
+  when "repl"
+    Skein::Repl.new.run
+  when "kernel"
+    Skein::Kernel.new.run
+  when "watch", "ui"
+    Skein::ObserverServer.new.run
+  when "status"
+    print_status
+  when "version", "-v", "--version"
+    puts "Skein #{Skein::VERSION}"
+  else
+    usage!
+  end
+end
+
+def wait_for_observer(host, port, timeout: 8)
+  deadline = Time.now + timeout
+  loop do
+    begin
+      socket = TCPSocket.new(host, port)
+      socket.close
+      return true
+    rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH
+      return false if Time.now >= deadline
+      sleep 0.1
+    end
+  end
+end
+
+def launch_browser(url)
+  case RbConfig::CONFIG["host_os"]
+  when /darwin/
+    system("open", url)
+  when /linux/
+    system("xdg-open", url)
+  when /mswin|mingw|cygwin/
+    system("cmd", "/c", "start", "", url)
+  else
+    warn "Open #{url} in your browser."
+    false
+  end
+end
+
+def run_with_watch(command)
+  unless %w[repl kernel].include?(command)
+    warn "--watch is only supported with repl or kernel"
+    exit 1
+  end
+
+  host = ENV.fetch("SKEIN_WATCH_HOST", Skein::ObserverServer::DEFAULT_HOST)
+  port = ENV.fetch("SKEIN_WATCH_PORT", Skein::ObserverServer::DEFAULT_PORT.to_s).to_i
+  url = "http://#{host}:#{port}"
+
+  watch_pid = Process.spawn(RbConfig.ruby, __FILE__, "watch")
+  if wait_for_observer(host, port)
+    launch_browser(url) unless ENV["SKEIN_NO_BROWSER"] == "1"
+  else
+    warn "Observer UI did not start in time. You can open #{url} manually."
+  end
+
+  run_command(command)
+ensure
+  if watch_pid
+    begin
+      Process.kill("TERM", watch_pid)
+      Process.wait(watch_pid)
+    rescue Errno::ESRCH, Errno::ECHILD
+      # already stopped
+    end
+  end
+end
+
+args = ARGV.dup
+with_watch = args.delete("--watch")
+
+if args.empty?
+  command = "repl"
+elsif args.size == 1
+  command = args.first
+else
+  usage!
+end
+
+# Prevent Ruby's ARGF/Kernel#gets from treating command args as input files.
+ARGV.replace([])
+
+if with_watch
+  run_with_watch(command)
+else
+  run_command(command)
 end

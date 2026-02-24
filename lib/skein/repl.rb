@@ -69,7 +69,7 @@ module Skein
 
       while @running
         print "#{BOLD}#{CYAN}you>#{RESET} "
-        input = gets
+        input = read_line
         break unless input
         input = input.strip
         next if input.empty?
@@ -114,7 +114,7 @@ module Skein
       puts "  #{BOLD}#{tool_name}#{RESET}"
       format_tool_input(tool_input).each { |line| puts "  #{DIM}#{line}#{RESET}" }
       print "#{YELLOW}Approve? [y/n]#{RESET} "
-      answer = gets&.strip&.downcase
+      answer = read_line&.strip&.downcase
 
       if answer == "y" || answer == "yes"
         puts "#{GREEN}Approved.#{RESET}"
@@ -434,7 +434,7 @@ module Skein
     def prompt_for_rating(task_id)
       print "#{DIM}  [rate 1-5 or enter to skip]#{RESET} "
       $stdout.flush
-      input = gets&.strip
+      input = read_line&.strip
       return if input.nil? || input.empty?
 
       delta = RATING_MAP[input]
@@ -449,6 +449,10 @@ module Skein
 
     def setup_signal_handlers!
       Signal.trap("INT") { @running = false }
+    end
+
+    def read_line
+      $stdin.gets
     end
 
     def log(msg)

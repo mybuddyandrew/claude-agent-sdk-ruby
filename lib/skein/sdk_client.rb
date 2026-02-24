@@ -78,47 +78,75 @@ module Skein
 
       result_text = ""
       final_session_id = nil
-      last_streamed_len = 0
+      attempt = 0
+      resume_session_id = session_id
 
-      Timeout.timeout(timeout) do
-        Async do
-          options = ClaudeAgentSDK::ClaudeAgentOptions.new(
-            cli_path: @cli_path,
-            system_prompt: system_prompt,
-            mcp_servers: { skein: mcp_server },
-            allowed_tools: allowed,
-            can_use_tool: build_permission_callback(chat_id),
-            permission_mode: "bypassPermissions",
-            resume: session_id,
-            max_turns: @config.sdk_max_turns,
-            include_partial_messages: true,
-          )
+      begin
+        attempt += 1
+        saw_result_message = false
+        last_streamed_len = 0
 
-          client = ClaudeAgentSDK::Client.new(options: options)
-          client.connect(input)
+        Timeout.timeout(timeout) do
+          Async do
+            options = ClaudeAgentSDK::ClaudeAgentOptions.new(
+              cli_path: @cli_path,
+              system_prompt: system_prompt,
+              mcp_servers: { skein: mcp_server },
+              allowed_tools: allowed,
+              can_use_tool: build_permission_callback(chat_id),
+              permission_mode: "bypassPermissions",
+              resume: resume_session_id,
+              max_turns: @config.sdk_max_turns,
+              include_partial_messages: true,
+            )
 
-          begin
-            client.receive_response do |msg|
-              case msg
-              when ClaudeAgentSDK::AssistantMessage
-                text = extract_text(msg)
-                if text && text.length > last_streamed_len
-                  delta = text[last_streamed_len..]
-                  @on_stream&.call(@current_task_id, delta) if delta && !delta.empty?
-                  last_streamed_len = text.length
+            client = ClaudeAgentSDK::Client.new(options: options)
+            client.connect(input)
+
+            begin
+              begin
+                client.receive_response do |msg|
+                  case msg
+                  when ClaudeAgentSDK::AssistantMessage
+                    text = extract_text(msg)
+                    if text && text.length > last_streamed_len
+                      delta = text[last_streamed_len..]
+                      @on_stream&.call(@current_task_id, delta) if delta && !delta.empty?
+                      last_streamed_len = text.length
+                    end
+                    result_text = text if text && !text.empty?
+
+                  when ClaudeAgentSDK::ResultMessage
+                    saw_result_message = true
+                    final_session_id = msg.session_id
+                    result_text = msg.result || result_text
+                    log "Task completed: #{msg.num_turns} turns, $#{msg.total_cost_usd || 0}"
+                  end
                 end
-                result_text = text if text && !text.empty?
+              rescue ClaudeAgentSDK::ProcessError => e
+                raise e unless saw_result_message
 
-              when ClaudeAgentSDK::ResultMessage
-                final_session_id = msg.session_id
-                result_text = msg.result || result_text
-                log "Task completed: #{msg.num_turns} turns, $#{msg.total_cost_usd || 0}"
+                log "Process exited non-zero after result; returning final output: #{e.message}"
+                # Non-fatal when we already received a final result message.
+                # Some CLI versions can emit a complete result and still exit non-zero.
               end
+            ensure
+              client.disconnect
             end
-          ensure
-            client.disconnect
+          end.wait
+        end
+      rescue ClaudeAgentSDK::ProcessError => e
+        if attempt < 2
+          if resume_session_id
+            log "Process error with resumed session, retrying without session: #{e.message}"
+            resume_session_id = nil
+          else
+            log "Process error during task execution (attempt #{attempt}), retrying: #{e.message}"
           end
-        end.wait
+          retry
+        end
+
+        raise
       end
 
       {

@@ -42,12 +42,50 @@ RSpec.describe Skein::ObserverServer do
     expect(snapshot[:recent_tasks].size).to eq(1)
     expect(snapshot[:recent_events].size).to eq(1)
     expect(snapshot[:recent_turns].size).to eq(1)
+    expect(snapshot[:recent_memories].size).to eq(1)
+    expect(snapshot[:recent_lessons].size).to eq(1)
+    expect(snapshot[:recent_memories].first["content"]).to eq("User likes Ruby")
+    expect(snapshot[:recent_lessons].first["content"]).to eq("Be concise")
   end
 
   it "parses JSON event payloads" do
     snapshot = @server.send(:build_snapshot, db: @db, limit: 5)
 
     expect(snapshot[:recent_events].first["payload"]).to eq({ "to" => "running" })
+  end
+
+  it "builds chat state including active runs and approvals" do
+    lock = @server.instance_variable_get(:@lock)
+    runs = @server.instance_variable_get(:@runs)
+    active = @server.instance_variable_get(:@active_task_by_chat)
+    pending = @server.instance_variable_get(:@pending_approvals)
+
+    lock.synchronize do
+      runs[42] = {
+        task_id: 42,
+        chat_id: "chat-1",
+        input: "hello",
+        status: "running",
+        stream_text: "thinking",
+        started_at: Time.now.utc.iso8601,
+      }
+      active["chat-1"] = 42
+      pending[7] = {
+        id: 7,
+        chat_id: "chat-1",
+        task_id: 42,
+        tool_name: "Bash",
+        tool_input: { "command" => "ls" },
+      }
+    end
+
+    state = @server.send(:build_chat_state, db: @db, chat_id: "chat-1", limit: 20)
+
+    expect(state[:turns].size).to eq(1)
+    expect(state[:active_run][:task_id]).to eq(42)
+    expect(state[:active_run][:status]).to eq("running")
+    expect(state[:pending_approvals].size).to eq(1)
+    expect(state[:pending_approvals].first[:tool_name]).to eq("Bash")
   end
 
   it "falls back to raw payload for invalid JSON" do

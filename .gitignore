@@ -60,4 +60,7 @@ Gemfile.lock
 # Skein artifacts
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+data/
 docs/notes/

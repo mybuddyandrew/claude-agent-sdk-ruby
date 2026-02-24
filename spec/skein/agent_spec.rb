@@ -343,6 +343,26 @@ RSpec.describe Skein::Agent do
       expect(updated["state"]).to eq("failed")
       expect(updated["error_message"]).to match(/SDK error: connection lost/)
     end
+
+    it "clears stale session on process failure" do
+      @db.execute(
+        "INSERT INTO sessions (chat_id, session_id) VALUES (?, ?)",
+        ["test_chat", "stale-session"]
+      )
+
+      sdk_client = MockSdkClient.new
+      def sdk_client.send_task(*, **)
+        raise Skein::SdkClient::SdkError, "Claude process failed: Command failed with exit code 1"
+      end
+
+      agent = build_agent(sdk_client: sdk_client, channel: MockChannel.new)
+      task = create_task(chat_id: "test_chat")
+
+      agent.process_task(task)
+
+      row = @db.get_first_row("SELECT session_id FROM sessions WHERE chat_id = ?", ["test_chat"])
+      expect(row).to be_nil
+    end
   end
 
   # --- Store/recent turns ---

@@ -40,6 +40,26 @@ RSpec.describe "bin/skein" do
     _stdout, stderr, status = Open3.capture3(ruby_bin, bin_path, "wat", chdir: repo_root)
 
     expect(status.success?).to be(false)
-    expect(stderr).to include("Usage: skein [repl|kernel|watch|ui|status|version]")
+    expect(stderr).to include("Usage: skein [repl|kernel|watch|ui|status|version] [--watch]")
+  end
+
+  it "rejects --watch with unsupported commands" do
+    _stdout, stderr, status = Open3.capture3(ruby_bin, bin_path, "status", "--watch", chdir: repo_root)
+
+    expect(status.success?).to be(false)
+    expect(stderr).to include("--watch is only supported with repl or kernel")
+  end
+
+  it "supports repl --watch without ARGF file errors" do
+    env = {
+      "SKEIN_NO_BROWSER" => "1",
+      "SKEIN_WATCH_PORT" => "49310",
+      "SKEIN_EMBEDDING_ENABLED" => "false",
+    }
+
+    _stdout, stderr, status = Open3.capture3(env, ruby_bin, bin_path, "repl", "--watch", chdir: repo_root)
+
+    expect(status.success?).to be(true)
+    expect(stderr).not_to include("rb_sysopen - repl")
   end
 end

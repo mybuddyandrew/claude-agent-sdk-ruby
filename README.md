@@ -69,7 +69,7 @@ Claude Agent SDK (lib/claude_agent_sdk/)
 ### Running Skein Tests
 
 ```bash
-bundle exec rspec spec/skein/                     # All Skein specs (369 examples)
+bundle exec rspec spec/skein/                     # All Skein specs (375 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (hits real CLI)
 ```
@@ -84,8 +84,21 @@ The `bin/skein` entry point supports:
 - `bin/skein status` — quick DB/task/memory/lesson counts
 - `bin/skein version` — print Skein version
 
-Run `bin/skein watch` and open `http://127.0.0.1:4310` to monitor task state,
-events, and conversation turns while another process runs the agent.
+Use `--watch` to auto-launch the observer while running the agent:
+
+```bash
+bin/skein repl --watch
+bin/skein kernel --watch
+```
+
+Use `SKEIN_NO_BROWSER=1` in headless environments to skip auto-opening a browser.
+
+The observer UI (default `http://127.0.0.1:4310`) now includes an in-browser
+chat composer and live panels for task flow, events, conversation turns,
+memories, and lessons while the agent runs.
+
+For tools that require approval (for example `Bash` or file writes), approve or
+deny directly in the browser approval panel.
 
 ### REPL Shortcuts
 
@@ -138,6 +151,7 @@ When running `bin/skein` in REPL mode, these slash commands are available:
 | `SKEIN_EMBEDDING_BACKFILL_BATCH_SIZE` | `50` | Batch size used when backfilling missing memory embeddings |
 | `SKEIN_WATCH_HOST` | `127.0.0.1` | Bind host for observer UI server |
 | `SKEIN_WATCH_PORT` | `4310` | Bind port for observer UI server |
+| `SKEIN_NO_BROWSER` | _(unset)_ | If `1`, skip auto-opening browser when using `--watch` |
 | `SKEIN_AUTO_APPROVE` | _(unset)_ | Comma-separated auto-approval rules (e.g. `Bash:ls *`) |
 
 ---

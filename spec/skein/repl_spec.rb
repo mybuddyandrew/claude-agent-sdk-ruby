@@ -98,7 +98,7 @@ RSpec.describe Skein::Repl do
       allow(repl).to receive(:start_spinner!)
       allow(repl).to receive(:puts)
       allow(repl).to receive(:print)
-      allow(repl).to receive(:gets).and_return("yes\n")
+      allow(repl).to receive(:read_line).and_return("yes\n")
 
       result = repl.request_approval("chat", "Bash", { "command" => "ls" })
 
@@ -111,7 +111,7 @@ RSpec.describe Skein::Repl do
       allow(repl).to receive(:start_spinner!)
       allow(repl).to receive(:puts)
       allow(repl).to receive(:print)
-      allow(repl).to receive(:gets).and_return("no\n")
+      allow(repl).to receive(:read_line).and_return("no\n")
 
       result = repl.request_approval("chat", "Bash", { "command" => "ls" })
 

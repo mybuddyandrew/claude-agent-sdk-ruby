@@ -397,6 +397,79 @@ RSpec.describe Skein::SdkClient do
       expect(captured_options.max_turns).to eq(12)
       expect(result["text"]).to eq("ok")
     end
+
+    it "tolerates ProcessError after final ResultMessage" do
+      allow(client).to receive(:build_mcp_server).and_return({})
+      allow(Timeout).to receive(:timeout).and_wrap_original do |_orig, _seconds, &block|
+        block.call
+      end
+
+      fake_sdk_client = instance_double(ClaudeAgentSDK::Client)
+      allow(ClaudeAgentSDK::Client).to receive(:new).and_return(fake_sdk_client)
+      allow(fake_sdk_client).to receive(:connect)
+      allow(fake_sdk_client).to receive(:receive_response) do |&block|
+        block.call(
+          ClaudeAgentSDK::ResultMessage.new(
+            subtype: "success",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            is_error: false,
+            num_turns: 1,
+            session_id: "sess-final",
+            result: "done"
+          )
+        )
+        raise ClaudeAgentSDK::ProcessError.new("late non-zero exit", exit_code: 1)
+      end
+      expect(fake_sdk_client).to receive(:disconnect)
+
+      result = client.send_task("hello", chat_id: "chat-1", timeout: 10)
+      expect(result["text"]).to eq("done")
+      expect(result["session_id"]).to eq("sess-final")
+    end
+
+    it "retries once on ProcessError before any ResultMessage" do
+      allow(client).to receive(:build_mcp_server).and_return({})
+      allow(Timeout).to receive(:timeout).and_wrap_original do |_orig, _seconds, &block|
+        block.call
+      end
+
+      fake_sdk_client_1 = instance_double(ClaudeAgentSDK::Client)
+      fake_sdk_client_2 = instance_double(ClaudeAgentSDK::Client)
+      options_seen = []
+
+      allow(ClaudeAgentSDK::Client).to receive(:new) do |options:|
+        options_seen << options
+        options_seen.size == 1 ? fake_sdk_client_1 : fake_sdk_client_2
+      end
+
+      allow(fake_sdk_client_1).to receive(:connect)
+      allow(fake_sdk_client_1).to receive(:receive_response)
+        .and_raise(ClaudeAgentSDK::ProcessError.new("boom", exit_code: 1))
+      expect(fake_sdk_client_1).to receive(:disconnect)
+
+      allow(fake_sdk_client_2).to receive(:connect)
+      allow(fake_sdk_client_2).to receive(:receive_response) do |&block|
+        block.call(
+          ClaudeAgentSDK::ResultMessage.new(
+            subtype: "success",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            is_error: false,
+            num_turns: 1,
+            session_id: "sess-retry",
+            result: "retried"
+          )
+        )
+      end
+      expect(fake_sdk_client_2).to receive(:disconnect)
+
+      result = client.send_task("hello", chat_id: "chat-1", session_id: "old-session", timeout: 10)
+      expect(result["text"]).to eq("retried")
+      expect(result["session_id"]).to eq("sess-retry")
+      expect(options_seen[0].resume).to eq("old-session")
+      expect(options_seen[1].resume).to be_nil
+    end
   end
 
   describe "send_extract error handling" do

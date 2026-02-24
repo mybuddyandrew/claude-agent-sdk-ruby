@@ -90,6 +90,11 @@ module Skein
           timeout:    @config.task_timeout
         )
       rescue SdkClient::SdkError => e
+        if session_id && e.message.downcase.include?("process failed")
+          clear_session!(chat_id)
+          log "Cleared stale session for chat #{chat_id} after process failure"
+        end
+
         log "SDK error for task #{task_id}: #{e.message}"
         @tasks.transition!(task_id, "failed", error_message: e.message)
         @events.append(type: "error_occurred", task_id: task_id, payload: { error: e.message })
