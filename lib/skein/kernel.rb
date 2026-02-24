@@ -12,7 +12,7 @@ module Skein
         raise ArgumentError, "SKEIN_TELEGRAM_TOKEN is required. Set it in .env or your environment."
       end
 
-      @db        = DB.new(@config.db_path)
+      @db        = DB.new(@config.db_path, busy_timeout_ms: @config.db_busy_timeout_ms)
       @events    = EventStore.new(@db)
       @tasks     = Task.new(db: @db, event_store: @events)
       @timers    = Timer.new(db: @db, event_store: @events)
@@ -20,7 +20,12 @@ module Skein
       @memory    = Memory.new(db: @db, event_store: @events, embedder: @embedder)
       @lessons   = Lesson.new(db: @db, event_store: @events)
       @lane      = Lane.new(task: @tasks)
-      @telegram  = Activities::Telegram.new(token: @config.telegram_token)
+      @telegram  = Activities::Telegram.new(
+        token: @config.telegram_token,
+        open_timeout: @config.telegram_open_timeout,
+        post_read_timeout: @config.telegram_post_read_timeout,
+        poll_read_timeout_buffer: @config.telegram_poll_read_timeout_buffer
+      )
 
       # SDK client + tool executor + skills
       tool_executor = ToolExecutor.new(
@@ -93,23 +98,29 @@ module Skein
     def request_approval(chat_id, tool_name, tool_input)
       input_summary = tool_input.is_a?(Hash) ? JSON.generate(tool_input) : tool_input.to_s
       # Truncate input summary for readability
-      input_summary = input_summary[0..500] + "..." if input_summary.length > 500
+      max_len = @config.approval_input_preview_length
+      input_summary = input_summary[0...max_len] + "..." if input_summary.length > max_len
       msg = "I'd like to use:\n  #{tool_name}(#{input_summary})\n\nReply /approve or /deny"
       send_reply(chat_id, msg)
 
       # Poll Telegram for the approval response with timeout
-      deadline = Time.now + 600  # 10 minute timeout
+      deadline = Time.now + @config.approval_timeout
       loop do
         return "deny" if Time.now > deadline
 
-        updates = @telegram.poll(timeout: 5)
+        updates = @telegram.poll(timeout: @config.approval_poll_timeout)
         updates.each do |update|
           msg_data = update.dig("message")
           next unless msg_data
           text = msg_data.dig("text")
           next unless text
           update_chat_id = msg_data.dig("chat", "id").to_s
-          next unless update_chat_id == chat_id.to_s
+          unless update_chat_id == chat_id.to_s
+            # Message for another chat while this approval is waiting.
+            # Queue it so main ingestion handles it later.
+            @queued_updates << update
+            next
+          end
 
           if text.start_with?("/approve")
             return "allow"
@@ -162,7 +173,7 @@ module Skein
 
     def run_skill_timer(timer)
       @skill_registry.handle_timer(timer)
-    rescue => e
+    rescue StandardError => e
       log "Skill timer error: #{e.message}"
     end
 

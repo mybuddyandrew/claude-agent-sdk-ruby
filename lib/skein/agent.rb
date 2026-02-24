@@ -87,7 +87,7 @@ module Skein
           session_id: session_id,
           memories:   memories_text,
           lessons:    lessons_text,
-          timeout:    300
+          timeout:    @config.task_timeout
         )
       rescue SdkClient::SdkError => e
         log "SDK error for task #{task_id}: #{e.message}"
@@ -157,7 +157,7 @@ module Skein
     # --- Recovery & Maintenance ---
 
     def recover_stale_tasks!
-      stale_cutoff = (Time.now.utc - 300).strftime("%Y-%m-%dT%H:%M:%S.%L")
+      stale_cutoff = (Time.now.utc - @config.stale_task_timeout).strftime("%Y-%m-%dT%H:%M:%S.%L")
       stale = @db.execute(
         "SELECT * FROM tasks WHERE state = 'running' AND updated_at < ?",
         [stale_cutoff]
@@ -175,10 +175,15 @@ module Skein
       pruned = @lessons.prune!
       log "Pruned #{pruned} ineffective lessons" if pruned > 0
 
-      event_pruned = @events.prune!(days: 30)
-      log "Pruned #{event_pruned} events older than 30 days" if event_pruned > 0
+      event_pruned = @events.prune!(days: @config.event_retention_days)
+      if event_pruned > 0
+        log "Pruned #{event_pruned} events older than #{@config.event_retention_days} days"
+      end
 
       consolidate_memories!
+
+      backfilled = @memory.backfill_embeddings(batch_size: @config.embedding_backfill_batch_size)
+      log "Backfilled embeddings for #{backfilled} memories" if backfilled.positive?
 
       # Skill hooks: on_maintenance
       @skill_registry&.run_maintenance
@@ -205,14 +210,20 @@ module Skein
       end
       input_text = lines.join("\n")
 
-      result = @sdk_client.send_extract(input_text, extract_type: "consolidate", timeout: 120)
+      result = @sdk_client.send_extract(
+        input_text,
+        extract_type: "consolidate",
+        timeout: @config.consolidate_timeout
+      )
       return unless result.is_a?(Hash) && result["memories"].is_a?(Array)
 
       consolidated = result["memories"]
 
-      # Safety check: if consolidated is less than 30% of original, something went wrong
-      if consolidated.size < (current_count * 0.3).ceil
-        log "Memory consolidation aborted: consolidated #{consolidated.size} from #{current_count} (below 30% safety threshold)"
+      # Safety check: if consolidated is below the configured ratio, something went wrong
+      min_allowed = (current_count * @config.consolidation_safety_ratio).ceil
+      if consolidated.size < min_allowed
+        pct = (@config.consolidation_safety_ratio * 100).round
+        log "Memory consolidation aborted: consolidated #{consolidated.size} from #{current_count} (below #{pct}% safety threshold)"
         return
       end
 
@@ -250,7 +261,7 @@ module Skein
         original_count: current_count,
         consolidated_count: new_count,
       })
-    rescue => e
+    rescue StandardError => e
       log "Memory consolidation error: #{e.message}"
       # Never fail over consolidation
     end
@@ -335,7 +346,7 @@ module Skein
     def should_decompose?(task)
       return false if task["parent_task_id"]  # Never decompose subtasks
       return false unless task["input_text"]
-      return false if task["input_text"].length < 80  # Short inputs → direct
+      return false if task["input_text"].length < @config.decomposition_min_length  # Short inputs → direct
       return false if task["source"] == "heartbeat"    # System tasks → direct
       true
     end
@@ -343,7 +354,7 @@ module Skein
     # Ask the SDK if this task should be decomposed. If yes, create subtasks.
     # Returns true if decomposed (caller should not process directly), false otherwise.
     def try_decompose(task)
-      result = @sdk_client.send_decompose(task["input_text"], timeout: 30)
+      result = @sdk_client.send_decompose(task["input_text"], timeout: @config.decompose_timeout)
       return false unless result.is_a?(Hash)
       return false unless result["decompose"] == true
 
@@ -380,7 +391,7 @@ module Skein
       @channel.send_reply(chat_id, "Breaking this into #{subtasks.size} steps:\n#{titles}") if chat_id
 
       true
-    rescue => e
+    rescue StandardError => e
       log "Decomposition error: #{e.message}"
       false  # Fall back to direct processing
     end
@@ -400,13 +411,17 @@ module Skein
 
       # Extract memories (facts about the user)
       extract_memories(conversation_text, task_id: task_id)
-    rescue => e
+    rescue StandardError => e
       log "Extraction error: #{e.message}"
       # Never fail the main task over extraction
     end
 
     def extract_lessons(conversation_text, task_id:)
-      result = @sdk_client.send_extract(conversation_text, extract_type: "lessons", timeout: 30)
+      result = @sdk_client.send_extract(
+        conversation_text,
+        extract_type: "lessons",
+        timeout: @config.extract_timeout
+      )
       return unless result.is_a?(Hash)
 
       lessons = result["lessons"]
@@ -422,12 +437,16 @@ module Skein
       end
 
       log "Extracted #{lessons.size} lessons from task #{task_id}" if lessons.any?
-    rescue => e
+    rescue StandardError => e
       log "Lesson extraction error: #{e.message}"
     end
 
     def extract_memories(conversation_text, task_id:)
-      result = @sdk_client.send_extract(conversation_text, extract_type: "memories", timeout: 30)
+      result = @sdk_client.send_extract(
+        conversation_text,
+        extract_type: "memories",
+        timeout: @config.extract_timeout
+      )
       return unless result.is_a?(Hash)
 
       memories = result["memories"]
@@ -443,7 +462,7 @@ module Skein
       end
 
       log "Extracted #{memories.size} memories from task #{task_id}" if memories.any?
-    rescue => e
+    rescue StandardError => e
       log "Memory extraction error: #{e.message}"
     end
 
@@ -502,7 +521,11 @@ module Skein
 
       conversation_text = parts.join("\n")
 
-      result = @sdk_client.send_extract(conversation_text, extract_type: "summary", timeout: 60)
+      result = @sdk_client.send_extract(
+        conversation_text,
+        extract_type: "summary",
+        timeout: @config.summary_timeout
+      )
       return unless result.is_a?(Hash) && result["summary"]
 
       save_summary(chat_id, result["summary"], old_turns.size)
@@ -515,7 +538,7 @@ module Skein
       )
 
       log "Summarized #{old_turns.size} turns for chat #{chat_id} (#{count} → #{count - old_turns.size})"
-    rescue => e
+    rescue StandardError => e
       log "Summarization error: #{e.message}"
       # Never fail the main flow over summarization
     end

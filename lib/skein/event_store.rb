@@ -31,11 +31,19 @@ module Skein
     # Delete events older than `days` days. Returns the number deleted.
     def prune!(days: 30)
       cutoff = (Time.now.utc - (days * 86400)).strftime("%Y-%m-%dT%H:%M:%S")
+
+      row = @db.get_first_row(
+        "SELECT COUNT(*) AS cnt FROM events WHERE created_at < ?",
+        [cutoff]
+      )
+      to_delete = row ? row["cnt"].to_i : 0
+      return 0 if to_delete.zero?
+
       @db.execute(
         "DELETE FROM events WHERE created_at < ?",
         [cutoff]
       )
-      @db.execute("SELECT changes()").first.values.first
+      to_delete
     end
 
     def count

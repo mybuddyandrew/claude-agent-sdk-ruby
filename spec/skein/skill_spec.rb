@@ -266,6 +266,41 @@ RSpec.describe Skein::SkillRegistry do
       expect(registry["greeter"].schedule_calls.size).to eq(1)
     end
 
+    it "supports hash payloads without JSON parsing" do
+      create_greeter_skill
+      registry = Skein::SkillRegistry.new(skills_dir: tmpdir, context: context)
+      registry.load_all!
+      timer = { "name" => "skill:greeter:schedule", "payload" => { "skill" => "greeter" } }
+
+      result = registry.handle_timer(timer)
+
+      expect(result).to be_truthy
+      expect(registry["greeter"].schedule_calls.size).to eq(1)
+    end
+
+    it "returns false for invalid JSON payload" do
+      create_greeter_skill
+      registry = Skein::SkillRegistry.new(skills_dir: tmpdir, context: context)
+      registry.load_all!
+      timer = { "name" => "skill:greeter:schedule", "payload" => "{not json" }
+
+      result = registry.handle_timer(timer)
+
+      expect(result).to be_falsey
+    end
+
+    it "returns false when skill schedule hook raises" do
+      create_greeter_skill
+      registry = Skein::SkillRegistry.new(skills_dir: tmpdir, context: context)
+      registry.load_all!
+      registry["greeter"].define_singleton_method(:on_schedule) { |_timer| raise "boom" }
+      timer = { "name" => "skill:greeter:schedule", "payload" => '{"skill":"greeter"}' }
+
+      result = registry.handle_timer(timer)
+
+      expect(result).to be_falsey
+    end
+
     it "returns false for unknown skill" do
       registry = Skein::SkillRegistry.new(skills_dir: tmpdir, context: context)
       registry.load_all!

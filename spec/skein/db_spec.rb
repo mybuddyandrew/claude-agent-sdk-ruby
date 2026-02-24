@@ -98,6 +98,13 @@ RSpec.describe Skein::DB do
     expect([true, false]).to include(db.vec_enabled)
   end
 
+  it "accepts custom busy_timeout_ms" do
+    db = Skein::DB.new(":memory:", vec: false, busy_timeout_ms: 1234)
+    db.execute("INSERT INTO events (type, payload) VALUES (?, ?)", ["test", "{}"])
+    row = db.get_first_row("SELECT * FROM events WHERE type = ?", ["test"])
+    expect(row["type"]).to eq("test")
+  end
+
   it "vec true raises when gem is missing" do
     begin
       require "sqlite_vec"

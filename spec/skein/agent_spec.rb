@@ -46,14 +46,14 @@ class MockSdkClient
   def send_task(input, chat_id:, session_id: nil, memories: "", lessons: "", timeout: 300)
     @tasks_sent << {
       input: input, chat_id: chat_id, session_id: session_id,
-      memories: memories, lessons: lessons
+      memories: memories, lessons: lessons, timeout: timeout
     }
     @next_result
   end
 
   def send_extract(conversation_text, extract_type: "lessons", timeout: 60)
     @extractions_sent ||= []
-    @extractions_sent << { text: conversation_text, type: extract_type }
+    @extractions_sent << { text: conversation_text, type: extract_type, timeout: timeout }
     if @next_extract_result
       @next_extract_result
     else
@@ -72,6 +72,8 @@ class MockSdkClient
   end
 
   def send_decompose(input_text, timeout: 30)
+    @decompose_requests ||= []
+    @decompose_requests << { input: input_text, timeout: timeout }
     @decompose_calls ||= []
     @decompose_calls << input_text
     @next_decompose_result || { "decompose" => false, "subtasks" => [] }
@@ -79,6 +81,10 @@ class MockSdkClient
 
   def decompose_calls
     @decompose_calls ||= []
+  end
+
+  def decompose_requests
+    @decompose_requests ||= []
   end
 
   def register_tools(tool_definitions)
@@ -156,6 +162,7 @@ RSpec.describe Skein::Agent do
       expect(sdk_client.tasks_sent.size).to eq(1)
       expect(sdk_client.tasks_sent[0][:input]).to eq("hello world")
       expect(sdk_client.tasks_sent[0][:chat_id]).to eq("test_chat")
+      expect(sdk_client.tasks_sent[0][:timeout]).to eq(@config.task_timeout)
     end
 
     it "completes with result" do
@@ -337,6 +344,7 @@ RSpec.describe Skein::Agent do
 
       expect(sdk_client.decompose_calls.size).to eq(1)
       expect(sdk_client.decompose_calls[0]).to eq(long_input)
+      expect(sdk_client.decompose_requests[0][:timeout]).to eq(@config.decompose_timeout)
     end
 
     it "decomposes task into subtasks" do
@@ -480,6 +488,8 @@ RSpec.describe Skein::Agent do
       expect(sdk_client.extractions_sent.size).to eq(2)
       expect(sdk_client.extractions_sent[0][:type]).to eq("lessons")
       expect(sdk_client.extractions_sent[1][:type]).to eq("memories")
+      expect(sdk_client.extractions_sent[0][:timeout]).to eq(@config.extract_timeout)
+      expect(sdk_client.extractions_sent[1][:timeout]).to eq(@config.extract_timeout)
     end
 
     it "stores extracted lessons" do
@@ -599,6 +609,7 @@ RSpec.describe Skein::Agent do
       # Should have sent a summary extraction
       summary_extractions = sdk_client.extractions_sent.select { |e| e[:type] == "summary" }
       expect(summary_extractions.size).to eq(1)
+      expect(summary_extractions[0][:timeout]).to eq(@config.summary_timeout)
 
       # Old turns should be deleted, recent ones kept
       remaining = agent.recent_turns(chat_id: "test_chat")
@@ -702,6 +713,42 @@ RSpec.describe Skein::Agent do
     end
   end
 
+  describe "maintenance config" do
+    it "uses configured event retention days for pruning" do
+      @config = Skein::Config.new(
+        system_prompt_path: File.expand_path("../../docs/SYSTEM_PROMPT.md", __dir__),
+        heartbeat_path: File.expand_path("../../docs/HEARTBEAT.md", __dir__),
+        event_retention_days: 7
+      )
+
+      sdk_client = MockSdkClient.new
+      agent = build_agent(sdk_client: sdk_client)
+
+      allow(@lessons).to receive(:prune!).and_return(0)
+      expect(@events).to receive(:prune!).with(days: 7).and_return(0)
+
+      agent.maintenance!
+    end
+
+    it "uses configured embedding backfill batch size" do
+      @config = Skein::Config.new(
+        system_prompt_path: File.expand_path("../../docs/SYSTEM_PROMPT.md", __dir__),
+        heartbeat_path: File.expand_path("../../docs/HEARTBEAT.md", __dir__),
+        embedding_backfill_batch_size: 77
+      )
+
+      sdk_client = MockSdkClient.new
+      agent = build_agent(sdk_client: sdk_client)
+
+      allow(@lessons).to receive(:prune!).and_return(0)
+      allow(@events).to receive(:prune!).and_return(0)
+      allow(agent).to receive(:consolidate_memories!)
+      expect(@memory).to receive(:backfill_embeddings).with(batch_size: 77).and_return(0)
+
+      agent.maintenance!
+    end
+  end
+
   # --- Memory consolidation ---
 
   describe "memory consolidation" do
@@ -731,7 +778,7 @@ RSpec.describe Skein::Agent do
       # Return a consolidated list (fewer than original)
       sdk_client.define_singleton_method(:send_extract) do |text, extract_type:, timeout: 60|
         @extractions_sent ||= []
-        @extractions_sent << { text: text, type: extract_type }
+        @extractions_sent << { text: text, type: extract_type, timeout: timeout }
         if extract_type == "consolidate"
           { "memories" => [
             { "content" => "User likes Ruby and Rails", "category" => "preference" },
@@ -757,6 +804,7 @@ RSpec.describe Skein::Agent do
       # Should have consolidated
       consolidate_extractions = sdk_client.extractions_sent.select { |e| e[:type] == "consolidate" }
       expect(consolidate_extractions.size).to eq(1)
+      expect(consolidate_extractions[0][:timeout]).to eq(@config.consolidate_timeout)
 
       # Memory count should be reduced
       expect(@memory.count).to eq(5)
@@ -770,10 +818,10 @@ RSpec.describe Skein::Agent do
       )
 
       sdk_client = MockSdkClient.new
-      # Return suspiciously few memories (below 30% safety threshold)
+      # Return suspiciously few memories (below configured safety threshold)
       sdk_client.define_singleton_method(:send_extract) do |text, extract_type:, timeout: 60|
         @extractions_sent ||= []
-        @extractions_sent << { text: text, type: extract_type }
+        @extractions_sent << { text: text, type: extract_type, timeout: timeout }
         if extract_type == "consolidate"
           { "memories" => [{ "content" => "Only one", "category" => "fact" }] }
         else

@@ -2,6 +2,14 @@ module Skein
   class Config
     attr_reader :telegram_token, :db_path,
                 :heartbeat_interval, :poll_timeout, :model, :cli_path,
+                :task_timeout, :stale_task_timeout,
+                :decompose_timeout, :extract_timeout, :summary_timeout, :consolidate_timeout,
+                :approval_timeout, :decomposition_min_length, :sdk_max_turns,
+                :consolidation_safety_ratio,
+                :approval_poll_timeout, :approval_input_preview_length,
+                :event_retention_days, :db_busy_timeout_ms,
+                :telegram_open_timeout, :telegram_post_read_timeout, :telegram_poll_read_timeout_buffer,
+                :embedding_backfill_batch_size,
                 :max_context_turns, :summary_threshold, :memory_consolidation_threshold,
                 :system_prompt_path, :heartbeat_path,
                 :admin_chat_id, :allowed_chat_ids,
@@ -19,6 +27,42 @@ module Skein
       @model              = overrides.fetch(:model)              { ENV.fetch("SKEIN_MODEL", "sonnet") }
       raw_cli_path        = overrides.fetch(:cli_path)           { ENV.fetch("SKEIN_CLI_PATH", "~/.local/bin/claude") }
       @cli_path           = File.expand_path(raw_cli_path)
+      @task_timeout       = overrides.fetch(:task_timeout)       { ENV.fetch("SKEIN_TASK_TIMEOUT", "300").to_i }
+      @stale_task_timeout = overrides.fetch(:stale_task_timeout) { ENV.fetch("SKEIN_STALE_TASK_TIMEOUT", @task_timeout.to_s).to_i }
+      @decompose_timeout  = overrides.fetch(:decompose_timeout)  { ENV.fetch("SKEIN_DECOMPOSE_TIMEOUT", "30").to_i }
+      @extract_timeout    = overrides.fetch(:extract_timeout)    { ENV.fetch("SKEIN_EXTRACT_TIMEOUT", "30").to_i }
+      @summary_timeout    = overrides.fetch(:summary_timeout)    { ENV.fetch("SKEIN_SUMMARY_TIMEOUT", "60").to_i }
+      @consolidate_timeout = overrides.fetch(:consolidate_timeout) { ENV.fetch("SKEIN_CONSOLIDATE_TIMEOUT", "120").to_i }
+      @approval_timeout   = overrides.fetch(:approval_timeout)   { ENV.fetch("SKEIN_APPROVAL_TIMEOUT", "600").to_i }
+      @approval_poll_timeout = overrides.fetch(:approval_poll_timeout) do
+        ENV.fetch("SKEIN_APPROVAL_POLL_TIMEOUT", "5").to_i
+      end
+      @approval_input_preview_length = overrides.fetch(:approval_input_preview_length) do
+        ENV.fetch("SKEIN_APPROVAL_INPUT_PREVIEW_LENGTH", "500").to_i
+      end
+      @decomposition_min_length = overrides.fetch(:decomposition_min_length) { ENV.fetch("SKEIN_DECOMPOSITION_MIN_LENGTH", "80").to_i }
+      @sdk_max_turns      = overrides.fetch(:sdk_max_turns)      { ENV.fetch("SKEIN_SDK_MAX_TURNS", "50").to_i }
+      @consolidation_safety_ratio = overrides.fetch(:consolidation_safety_ratio) do
+        ENV.fetch("SKEIN_CONSOLIDATION_SAFETY_RATIO", "0.3").to_f
+      end
+      @event_retention_days = overrides.fetch(:event_retention_days) do
+        ENV.fetch("SKEIN_EVENT_RETENTION_DAYS", "30").to_i
+      end
+      @db_busy_timeout_ms = overrides.fetch(:db_busy_timeout_ms) do
+        ENV.fetch("SKEIN_DB_BUSY_TIMEOUT_MS", "5000").to_i
+      end
+      @telegram_open_timeout = overrides.fetch(:telegram_open_timeout) do
+        ENV.fetch("SKEIN_TELEGRAM_OPEN_TIMEOUT", "10").to_i
+      end
+      @telegram_post_read_timeout = overrides.fetch(:telegram_post_read_timeout) do
+        ENV.fetch("SKEIN_TELEGRAM_POST_READ_TIMEOUT", "30").to_i
+      end
+      @telegram_poll_read_timeout_buffer = overrides.fetch(:telegram_poll_read_timeout_buffer) do
+        ENV.fetch("SKEIN_TELEGRAM_POLL_READ_TIMEOUT_BUFFER", "5").to_i
+      end
+      @embedding_backfill_batch_size = overrides.fetch(:embedding_backfill_batch_size) do
+        ENV.fetch("SKEIN_EMBEDDING_BACKFILL_BATCH_SIZE", "50").to_i
+      end
       @max_context_turns  = overrides.fetch(:max_context_turns)  { ENV.fetch("SKEIN_MAX_CONTEXT_TURNS", "20").to_i }
       @summary_threshold  = overrides.fetch(:summary_threshold)  { ENV.fetch("SKEIN_SUMMARY_THRESHOLD", "40").to_i }
       @memory_consolidation_threshold = overrides.fetch(:memory_consolidation_threshold) { ENV.fetch("SKEIN_MEMORY_CONSOLIDATION_THRESHOLD", "100").to_i }

@@ -25,7 +25,7 @@ module Skein
 
     def initialize
       @config    = Config.new
-      @db        = DB.new(@config.db_path)
+      @db        = DB.new(@config.db_path, busy_timeout_ms: @config.db_busy_timeout_ms)
       @events    = EventStore.new(@db)
       @tasks     = Task.new(db: @db, event_store: @events)
       @timers    = Timer.new(db: @db, event_store: @events)

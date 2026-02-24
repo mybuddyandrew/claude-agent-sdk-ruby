@@ -80,42 +80,46 @@ module Skein
       final_session_id = nil
       last_streamed_len = 0
 
-      Async do
-        options = ClaudeAgentSDK::ClaudeAgentOptions.new(
-          cli_path: @cli_path,
-          system_prompt: system_prompt,
-          mcp_servers: { skein: mcp_server },
-          allowed_tools: allowed,
-          can_use_tool: build_permission_callback(chat_id),
-          permission_mode: "bypassPermissions",
-          resume: session_id,
-          max_turns: 50,
-          include_partial_messages: true,
-        )
+      Timeout.timeout(timeout) do
+        Async do
+          options = ClaudeAgentSDK::ClaudeAgentOptions.new(
+            cli_path: @cli_path,
+            system_prompt: system_prompt,
+            mcp_servers: { skein: mcp_server },
+            allowed_tools: allowed,
+            can_use_tool: build_permission_callback(chat_id),
+            permission_mode: "bypassPermissions",
+            resume: session_id,
+            max_turns: @config.sdk_max_turns,
+            include_partial_messages: true,
+          )
 
-        client = ClaudeAgentSDK::Client.new(options: options)
-        client.connect(input)
+          client = ClaudeAgentSDK::Client.new(options: options)
+          client.connect(input)
 
-        client.receive_response do |msg|
-          case msg
-          when ClaudeAgentSDK::AssistantMessage
-            text = extract_text(msg)
-            if text && text.length > last_streamed_len
-              delta = text[last_streamed_len..]
-              @on_stream&.call(@current_task_id, delta) if delta && !delta.empty?
-              last_streamed_len = text.length
+          begin
+            client.receive_response do |msg|
+              case msg
+              when ClaudeAgentSDK::AssistantMessage
+                text = extract_text(msg)
+                if text && text.length > last_streamed_len
+                  delta = text[last_streamed_len..]
+                  @on_stream&.call(@current_task_id, delta) if delta && !delta.empty?
+                  last_streamed_len = text.length
+                end
+                result_text = text if text && !text.empty?
+
+              when ClaudeAgentSDK::ResultMessage
+                final_session_id = msg.session_id
+                result_text = msg.result || result_text
+                log "Task completed: #{msg.num_turns} turns, $#{msg.total_cost_usd || 0}"
+              end
             end
-            result_text = text if text && !text.empty?
-
-          when ClaudeAgentSDK::ResultMessage
-            final_session_id = msg.session_id
-            result_text = msg.result || result_text
-            log "Task completed: #{msg.num_turns} turns, $#{msg.total_cost_usd || 0}"
+          ensure
+            client.disconnect
           end
-        end
-
-        client.disconnect
-      end.wait
+        end.wait
+      end
 
       {
         "type" => "result",
@@ -123,11 +127,13 @@ module Skein
         "session_id" => final_session_id,
         "structured_output" => nil,
       }
+    rescue Timeout::Error
+      raise SdkError, "SDK task timed out after #{timeout}s"
     rescue ClaudeAgentSDK::CLINotFoundError
       raise SdkError, "Claude CLI not found at #{@cli_path}"
     rescue ClaudeAgentSDK::ProcessError => e
       raise SdkError, "Claude process failed: #{e.message} (exit #{e.exit_code})"
-    rescue => e
+    rescue StandardError => e
       raise SdkError, "SDK error: #{e.message}"
     end
 
@@ -159,7 +165,7 @@ module Skein
       end
 
       result
-    rescue => e
+    rescue StandardError => e
       log "Extraction error (#{extract_type}): #{e.message}"
       nil
     end
@@ -189,7 +195,7 @@ module Skein
       end
 
       result
-    rescue => e
+    rescue StandardError => e
       log "Decompose error: #{e.message}"
       nil
     end

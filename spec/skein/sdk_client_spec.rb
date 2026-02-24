@@ -295,11 +295,38 @@ RSpec.describe Skein::SdkClient do
   end
 
   describe "error wrapping" do
+    it "uses configured cli_path in CLINotFound errors" do
+      custom_config = Skein::Config.new(
+        telegram_token: "fake",
+        system_prompt_path: "/nonexistent/prompt.md",
+        model: "sonnet",
+        cli_path: "/tmp/custom-claude",
+        auto_approve_rules: []
+      )
+      custom_client = Skein::SdkClient.new(
+        config: custom_config,
+        tool_executor: tool_executor,
+        channel: channel,
+        logger: logger
+      )
+      allow(custom_client).to receive(:build_mcp_server).and_raise(ClaudeAgentSDK::CLINotFoundError)
+      expect {
+        custom_client.send_task("test", chat_id: "1")
+      }.to raise_error(Skein::SdkClient::SdkError, /\/tmp\/custom-claude/)
+    end
+
     it "wraps CLINotFoundError as SdkError" do
       allow(client).to receive(:build_mcp_server).and_raise(ClaudeAgentSDK::CLINotFoundError)
       expect {
         client.send_task("test", chat_id: "1")
       }.to raise_error(Skein::SdkClient::SdkError, /CLI not found/)
+    end
+
+    it "wraps Timeout::Error as SdkError" do
+      allow(Timeout).to receive(:timeout).and_raise(Timeout::Error)
+      expect {
+        client.send_task("test", chat_id: "1", timeout: 42)
+      }.to raise_error(Skein::SdkClient::SdkError, /timed out after 42s/)
     end
 
     it "wraps ProcessError as SdkError" do
@@ -316,6 +343,59 @@ RSpec.describe Skein::SdkClient do
       expect {
         client.send_task("test", chat_id: "1")
       }.to raise_error(Skein::SdkClient::SdkError, /SDK error/)
+    end
+  end
+
+  describe "send_task option wiring" do
+    it "uses configured sdk_max_turns and provided timeout" do
+      custom_config = Skein::Config.new(
+        telegram_token: "fake",
+        system_prompt_path: "/nonexistent/prompt.md",
+        model: "sonnet",
+        sdk_max_turns: 12,
+        auto_approve_rules: []
+      )
+      custom_client = Skein::SdkClient.new(
+        config: custom_config,
+        tool_executor: tool_executor,
+        channel: channel,
+        logger: logger
+      )
+
+      allow(custom_client).to receive(:build_mcp_server).and_return({})
+
+      captured_timeout = nil
+      allow(Timeout).to receive(:timeout).and_wrap_original do |_orig, seconds, &block|
+        captured_timeout = seconds
+        block.call
+      end
+
+      captured_options = nil
+      fake_sdk_client = instance_double(ClaudeAgentSDK::Client)
+      allow(ClaudeAgentSDK::Client).to receive(:new) do |options:|
+        captured_options = options
+        fake_sdk_client
+      end
+      allow(fake_sdk_client).to receive(:connect)
+      allow(fake_sdk_client).to receive(:receive_response) do |&block|
+        block.call(
+          ClaudeAgentSDK::ResultMessage.new(
+            subtype: "success",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            is_error: false,
+            num_turns: 1,
+            session_id: "sess-123",
+            result: "ok"
+          )
+        )
+      end
+      expect(fake_sdk_client).to receive(:disconnect)
+
+      result = custom_client.send_task("hello", chat_id: "chat-1", timeout: 42)
+      expect(captured_timeout).to eq(42)
+      expect(captured_options.max_turns).to eq(12)
+      expect(result["text"]).to eq("ok")
     end
   end
 

@@ -1,4 +1,5 @@
 require "yaml"
+require "json"
 
 module Skein
   # Discovers, loads, and manages skills from the skills/ directory.
@@ -95,7 +96,7 @@ module Skein
 
       skill.on_schedule(timer)
       true
-    rescue => e
+    rescue StandardError => e
       log("Error in skill #{skill_name} on_schedule: #{e.message}")
       false
     end
@@ -104,7 +105,7 @@ module Skein
     def run_after_task(task, result)
       @skills.each_value do |skill|
         skill.after_task(task, result)
-      rescue => e
+      rescue StandardError => e
         log("Error in skill #{skill.name} after_task: #{e.message}")
       end
     end
@@ -113,7 +114,7 @@ module Skein
     def run_maintenance
       @skills.each_value do |skill|
         skill.on_maintenance
-      rescue => e
+      rescue StandardError => e
         log("Error in skill #{skill.name} on_maintenance: #{e.message}")
       end
     end
@@ -151,7 +152,7 @@ module Skein
 
       skill = klass.new(name: name, manifest: manifest, context: @context)
       @skills[name] = skill
-    rescue => e
+    rescue StandardError => e
       log("Error loading skill #{name}: #{e.message}")
     end
 

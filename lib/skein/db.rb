@@ -117,11 +117,11 @@ module Skein
 
     attr_reader :vec_enabled
 
-    def initialize(path, vec: :auto)
+    def initialize(path, vec: :auto, busy_timeout_ms: 5000)
       FileUtils.mkdir_p(File.dirname(path)) unless path == ":memory:"
       @db = SQLite3::Database.new(path)
       @db.results_as_hash = true
-      @db.busy_timeout = 5000  # 5 seconds — prevents SQLITE_BUSY on concurrent writes
+      @db.busy_timeout = busy_timeout_ms
       @vec_enabled = false
       bootstrap_schema!
       load_vec_extension!(vec)

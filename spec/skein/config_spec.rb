@@ -76,6 +76,28 @@ RSpec.describe Skein::Config do
       config = Skein::Config.new
       expect(config.cli_path).to eq(File.expand_path("~/.local/bin/claude"))
     end
+
+    it "has default runtime timeouts and thresholds" do
+      config = Skein::Config.new
+      expect(config.task_timeout).to eq(300)
+      expect(config.stale_task_timeout).to eq(300)
+      expect(config.decompose_timeout).to eq(30)
+      expect(config.extract_timeout).to eq(30)
+      expect(config.summary_timeout).to eq(60)
+      expect(config.consolidate_timeout).to eq(120)
+      expect(config.approval_timeout).to eq(600)
+      expect(config.approval_poll_timeout).to eq(5)
+      expect(config.approval_input_preview_length).to eq(500)
+      expect(config.decomposition_min_length).to eq(80)
+      expect(config.sdk_max_turns).to eq(50)
+      expect(config.consolidation_safety_ratio).to eq(0.3)
+      expect(config.event_retention_days).to eq(30)
+      expect(config.db_busy_timeout_ms).to eq(5000)
+      expect(config.telegram_open_timeout).to eq(10)
+      expect(config.telegram_post_read_timeout).to eq(30)
+      expect(config.telegram_poll_read_timeout_buffer).to eq(5)
+      expect(config.embedding_backfill_batch_size).to eq(50)
+    end
   end
 
   describe "embedding config" do
@@ -122,6 +144,17 @@ RSpec.describe Skein::Config do
     ensure
       ENV.delete("SKEIN_CLI_PATH")
     end
+
+    it "takes precedence for task and stale timeouts" do
+      ENV["SKEIN_TASK_TIMEOUT"] = "999"
+      ENV["SKEIN_STALE_TASK_TIMEOUT"] = "888"
+      config = Skein::Config.new(task_timeout: 111, stale_task_timeout: 222)
+      expect(config.task_timeout).to eq(111)
+      expect(config.stale_task_timeout).to eq(222)
+    ensure
+      ENV.delete("SKEIN_TASK_TIMEOUT")
+      ENV.delete("SKEIN_STALE_TASK_TIMEOUT")
+    end
   end
 
   describe "#cli_path" do
@@ -131,6 +164,79 @@ RSpec.describe Skein::Config do
       expect(config.cli_path).to eq("/tmp/custom-claude")
     ensure
       ENV.delete("SKEIN_CLI_PATH")
+    end
+  end
+
+  describe "runtime timeout env config" do
+    it "reads runtime values from env" do
+      ENV["SKEIN_TASK_TIMEOUT"] = "301"
+      ENV["SKEIN_STALE_TASK_TIMEOUT"] = "302"
+      ENV["SKEIN_DECOMPOSE_TIMEOUT"] = "33"
+      ENV["SKEIN_EXTRACT_TIMEOUT"] = "34"
+      ENV["SKEIN_SUMMARY_TIMEOUT"] = "61"
+      ENV["SKEIN_CONSOLIDATE_TIMEOUT"] = "121"
+      ENV["SKEIN_APPROVAL_TIMEOUT"] = "601"
+      ENV["SKEIN_APPROVAL_POLL_TIMEOUT"] = "6"
+      ENV["SKEIN_APPROVAL_INPUT_PREVIEW_LENGTH"] = "550"
+      ENV["SKEIN_DECOMPOSITION_MIN_LENGTH"] = "81"
+      ENV["SKEIN_SDK_MAX_TURNS"] = "51"
+      ENV["SKEIN_CONSOLIDATION_SAFETY_RATIO"] = "0.4"
+      ENV["SKEIN_EVENT_RETENTION_DAYS"] = "31"
+      ENV["SKEIN_DB_BUSY_TIMEOUT_MS"] = "5001"
+      ENV["SKEIN_TELEGRAM_OPEN_TIMEOUT"] = "11"
+      ENV["SKEIN_TELEGRAM_POST_READ_TIMEOUT"] = "31"
+      ENV["SKEIN_TELEGRAM_POLL_READ_TIMEOUT_BUFFER"] = "6"
+      ENV["SKEIN_EMBEDDING_BACKFILL_BATCH_SIZE"] = "51"
+
+      config = Skein::Config.new
+      expect(config.task_timeout).to eq(301)
+      expect(config.stale_task_timeout).to eq(302)
+      expect(config.decompose_timeout).to eq(33)
+      expect(config.extract_timeout).to eq(34)
+      expect(config.summary_timeout).to eq(61)
+      expect(config.consolidate_timeout).to eq(121)
+      expect(config.approval_timeout).to eq(601)
+      expect(config.approval_poll_timeout).to eq(6)
+      expect(config.approval_input_preview_length).to eq(550)
+      expect(config.decomposition_min_length).to eq(81)
+      expect(config.sdk_max_turns).to eq(51)
+      expect(config.consolidation_safety_ratio).to eq(0.4)
+      expect(config.event_retention_days).to eq(31)
+      expect(config.db_busy_timeout_ms).to eq(5001)
+      expect(config.telegram_open_timeout).to eq(11)
+      expect(config.telegram_post_read_timeout).to eq(31)
+      expect(config.telegram_poll_read_timeout_buffer).to eq(6)
+      expect(config.embedding_backfill_batch_size).to eq(51)
+    ensure
+      ENV.delete("SKEIN_TASK_TIMEOUT")
+      ENV.delete("SKEIN_STALE_TASK_TIMEOUT")
+      ENV.delete("SKEIN_DECOMPOSE_TIMEOUT")
+      ENV.delete("SKEIN_EXTRACT_TIMEOUT")
+      ENV.delete("SKEIN_SUMMARY_TIMEOUT")
+      ENV.delete("SKEIN_CONSOLIDATE_TIMEOUT")
+      ENV.delete("SKEIN_APPROVAL_TIMEOUT")
+      ENV.delete("SKEIN_APPROVAL_POLL_TIMEOUT")
+      ENV.delete("SKEIN_APPROVAL_INPUT_PREVIEW_LENGTH")
+      ENV.delete("SKEIN_DECOMPOSITION_MIN_LENGTH")
+      ENV.delete("SKEIN_SDK_MAX_TURNS")
+      ENV.delete("SKEIN_CONSOLIDATION_SAFETY_RATIO")
+      ENV.delete("SKEIN_EVENT_RETENTION_DAYS")
+      ENV.delete("SKEIN_DB_BUSY_TIMEOUT_MS")
+      ENV.delete("SKEIN_TELEGRAM_OPEN_TIMEOUT")
+      ENV.delete("SKEIN_TELEGRAM_POST_READ_TIMEOUT")
+      ENV.delete("SKEIN_TELEGRAM_POLL_READ_TIMEOUT_BUFFER")
+      ENV.delete("SKEIN_EMBEDDING_BACKFILL_BATCH_SIZE")
+    end
+
+    it "defaults stale_task_timeout to task_timeout when not set" do
+      ENV["SKEIN_TASK_TIMEOUT"] = "412"
+      ENV.delete("SKEIN_STALE_TASK_TIMEOUT")
+      config = Skein::Config.new
+      expect(config.task_timeout).to eq(412)
+      expect(config.stale_task_timeout).to eq(412)
+    ensure
+      ENV.delete("SKEIN_TASK_TIMEOUT")
+      ENV.delete("SKEIN_STALE_TASK_TIMEOUT")
     end
   end
 
