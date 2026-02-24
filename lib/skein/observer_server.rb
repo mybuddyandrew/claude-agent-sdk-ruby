@@ -36,6 +36,7 @@ module Skein
       server.mount_proc("/") { |_req, res| respond_dashboard(res) }
       server.mount_proc("/api/snapshot") { |req, res| respond_snapshot(req, res) }
       server.mount_proc("/api/run_timeline") { |req, res| respond_run_timeline(req, res) }
+      server.mount_proc("/api/run_scorecard") { |req, res| respond_run_scorecard(req, res) }
       server.mount_proc("/api/run_diff") { |req, res| respond_run_diff(req, res) }
       server.mount_proc("/api/chat_state") { |req, res| respond_chat_state(req, res) }
       server.mount_proc("/api/chat_send") { |req, res| respond_chat_send(req, res) }
@@ -145,6 +146,32 @@ module Skein
       res.status = 200
       res["Content-Type"] = "application/json; charset=utf-8"
       res.body = JSON.generate(diff)
+    ensure
+      db&.close
+    end
+
+    def respond_run_scorecard(req, res)
+      task_id = req.query["task_id"].to_i
+      if task_id <= 0
+        res.status = 422
+        res["Content-Type"] = "application/json; charset=utf-8"
+        res.body = JSON.generate(error: "task_id is required")
+        return
+      end
+
+      db = DB.new(@config.db_path, busy_timeout_ms: @config.db_busy_timeout_ms)
+      scorecard = build_run_scorecard(db: db, task_id: task_id)
+
+      if scorecard.nil?
+        res.status = 404
+        res["Content-Type"] = "application/json; charset=utf-8"
+        res.body = JSON.generate(error: "task not found")
+        return
+      end
+
+      res.status = 200
+      res["Content-Type"] = "application/json; charset=utf-8"
+      res.body = JSON.generate(scorecard)
     ensure
       db&.close
     end
@@ -437,6 +464,80 @@ module Skein
           },
           event_count_delta: event_count_delta,
         },
+      }
+    end
+
+    def build_run_scorecard(db:, task_id:)
+      snapshot = build_run_snapshot(db: db, task_id: task_id)
+      return nil unless snapshot
+
+      task = snapshot[:task]
+      metrics = snapshot[:metrics]
+      event_counts = snapshot[:event_counts]
+
+      score = 100
+      notes = []
+
+      case task["state"]
+      when "completed"
+        notes << "Task completed"
+      when "failed"
+        score -= 45
+        notes << "Task failed"
+      else
+        score -= 20
+        notes << "Task not completed (#{task['state']})"
+      end
+
+      if event_counts["error_occurred"].to_i.positive?
+        score -= 20
+        notes << "#{event_counts['error_occurred']} error event(s) recorded"
+      end
+
+      unless task["error_message"].to_s.strip.empty?
+        score -= 15
+        notes << "Task contains error message"
+      end
+
+      duration = metrics[:duration_seconds].to_f
+      if duration > 60
+        score -= 15
+        notes << "Long runtime (> 60s)"
+      elsif duration > 30
+        score -= 8
+        notes << "Slow runtime (> 30s)"
+      end
+
+      score += 5 if event_counts["task_decomposed"].to_i.positive?
+      score += 3 if event_counts["sdk_response_received"].to_i.positive?
+
+      score = [[score, 100].min, 0].max
+      grade = if score >= 90
+        "A"
+      elsif score >= 75
+        "B"
+      elsif score >= 60
+        "C"
+      elsif score >= 40
+        "D"
+      else
+        "F"
+      end
+
+      {
+        task_id: task["id"],
+        state: task["state"],
+        score: score,
+        grade: grade,
+        metrics: {
+          duration_seconds: duration,
+          event_count: metrics[:event_count],
+          turn_count: metrics[:turn_count],
+          input_length: metrics[:input_length],
+          output_length: metrics[:output_length],
+          error_events: event_counts["error_occurred"].to_i,
+        },
+        notes: notes,
       }
     end
 
@@ -740,6 +841,9 @@ module Skein
             .timeline-step:last-child { border-bottom: 0; }
             .timeline-step .label { font-weight: 600; }
             .timeline-step .detail { margin-top: 4px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+            .scorecard { border-bottom: 1px solid var(--border); padding: 8px 10px; background: #fffefb; }
+            .scorecard .grade { font-size: 20px; font-weight: 700; color: var(--accent); }
+            .scorecard .notes { margin-top: 6px; font-size: 12px; color: var(--muted); }
             .diff-controls { display: grid; grid-template-columns: auto 1fr auto 1fr auto; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: #faf7ef; align-items: center; }
             .diff-controls input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font: inherit; }
             .diff-controls button { border: 0; border-radius: 6px; padding: 6px 10px; background: var(--accent); color: white; cursor: pointer; }
@@ -818,6 +922,7 @@ module Skein
                 <input id="timelineTaskId" type="number" min="1" placeholder="Select from tasks or type id" />
                 <button id="timelineLoad">Load</button>
               </div>
+              <div id="timelineScorecard" class="scorecard" style="display:none"></div>
               <div id="timelineSteps" class="scroll"></div>
             </section>
             <section>
@@ -850,6 +955,7 @@ module Skein
             const timelineTaskIdEl = document.getElementById("timelineTaskId")
             const timelineLoadEl = document.getElementById("timelineLoad")
             const timelineStepsEl = document.getElementById("timelineSteps")
+            const timelineScorecardEl = document.getElementById("timelineScorecard")
             const diffLeftTaskIdEl = document.getElementById("diffLeftTaskId")
             const diffRightTaskIdEl = document.getElementById("diffRightTaskId")
             const diffLoadEl = document.getElementById("diffLoad")
@@ -1074,16 +1180,28 @@ module Skein
               if (!id || id <= 0) return
 
               timelineStepsEl.innerHTML = `<div class="timeline-step muted">Loading timeline for task #${id}...</div>`
+              timelineScorecardEl.style.display = "none"
               try {
-                const res = await fetch(`/api/run_timeline?task_id=${id}&limit=400`)
-                if (!res.ok) {
-                  const body = await res.json().catch(() => ({}))
-                  throw new Error(body.error || `HTTP ${res.status}`)
+                const [timelineRes, scoreRes] = await Promise.all([
+                  fetch(`/api/run_timeline?task_id=${id}&limit=400`),
+                  fetch(`/api/run_scorecard?task_id=${id}`)
+                ])
+
+                if (!timelineRes.ok) {
+                  const body = await timelineRes.json().catch(() => ({}))
+                  throw new Error(body.error || `HTTP ${timelineRes.status}`)
                 }
-                const data = await res.json()
-                renderTimeline(data)
+
+                const timelineData = await timelineRes.json()
+                renderTimeline(timelineData)
+
+                if (scoreRes.ok) {
+                  const scoreData = await scoreRes.json()
+                  renderScorecard(scoreData)
+                }
               } catch (err) {
                 timelineStepsEl.innerHTML = `<div class="timeline-step muted">Timeline error: ${escapeHtml(err.message)}</div>`
+                timelineScorecardEl.style.display = "none"
               }
             }
 
@@ -1109,6 +1227,16 @@ module Skein
                   </div>
                 `
               }).join("")
+            }
+
+            function renderScorecard(scorecard) {
+              const notes = (scorecard.notes || []).map(n => `<li>${escapeHtml(n)}</li>`).join("")
+              timelineScorecardEl.style.display = "block"
+              timelineScorecardEl.innerHTML = `
+                <div><span class="muted">Outcome score</span> <span class="grade">${escapeHtml(scorecard.grade)} (${escapeHtml(scorecard.score)})</span></div>
+                <div class="muted">state: ${escapeHtml(scorecard.state)} | duration: ${escapeHtml(scorecard.metrics.duration_seconds)}s | events: ${escapeHtml(scorecard.metrics.event_count)} | turns: ${escapeHtml(scorecard.metrics.turn_count)}</div>
+                <ul class="notes">${notes}</ul>
+              `
             }
 
             function renderRunDiff(data) {

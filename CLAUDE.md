@@ -17,9 +17,9 @@ This repo ships Skein as the primary runtime and includes two integrated layers:
 
 ```bash
 bundle install                                    # Install dependencies
-bundle exec rspec                                 # Run all unit tests (600 examples)
+bundle exec rspec                                 # Run all unit tests (602 examples)
 bundle exec rspec spec/unit/                      # SDK specs only (221 examples)
-bundle exec rspec spec/skein/                     # Skein specs only (379 examples)
+bundle exec rspec spec/skein/                     # Skein specs only (381 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 bundle exec rspec spec/skein/agent_spec.rb:42     # Single test by line number
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live SDK tests (hits real CLI)

@@ -139,6 +139,23 @@ RSpec.describe Skein::ObserverServer do
     expect(diff).to be_nil
   end
 
+  it "builds a run scorecard" do
+    task_id = @db.get_first_row("SELECT id FROM tasks LIMIT 1")["id"]
+
+    scorecard = @server.send(:build_run_scorecard, db: @db, task_id: task_id)
+
+    expect(scorecard[:task_id]).to eq(task_id)
+    expect(scorecard[:grade]).to match(/[A-F]/)
+    expect(scorecard[:metrics][:event_count]).to eq(1)
+    expect(scorecard[:notes]).not_to be_empty
+  end
+
+  it "returns nil scorecard for unknown task" do
+    scorecard = @server.send(:build_run_scorecard, db: @db, task_id: 999_999)
+
+    expect(scorecard).to be_nil
+  end
+
   it "falls back to raw payload for invalid JSON" do
     row = { "id" => 1, "payload" => "not-json" }
     parsed = @server.send(:parse_event_row, row)
