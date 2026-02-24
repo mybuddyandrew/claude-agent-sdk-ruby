@@ -17,9 +17,9 @@ This repo contains two integrated layers:
 
 ```bash
 bundle install                                    # Install dependencies
-bundle exec rspec                                 # Run all unit tests (459 examples)
+bundle exec rspec                                 # Run all unit tests (561 examples)
 bundle exec rspec spec/unit/                      # SDK specs only (221 examples)
-bundle exec rspec spec/skein/                     # Skein specs only (238 examples)
+bundle exec rspec spec/skein/                     # Skein specs only (340 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 bundle exec rspec spec/skein/agent_spec.rb:42     # Single test by line number
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live SDK tests (hits real CLI)

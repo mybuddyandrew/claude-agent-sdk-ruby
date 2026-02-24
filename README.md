@@ -70,7 +70,7 @@ Claude Agent SDK (lib/claude_agent_sdk/)
 ### Running Skein Tests
 
 ```bash
-bundle exec rspec spec/skein/                     # All Skein specs (238 examples)
+bundle exec rspec spec/skein/                     # All Skein specs (340 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (hits real CLI)
 ```
@@ -80,6 +80,33 @@ SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (h
 - Ruby 4.0.0 (via asdf)
 - Claude Code CLI 2.0.0+ at `~/.local/bin/claude`
 - SQLite3, sqlite-vec (optional), informers (optional, for embeddings)
+
+### Skein Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SKEIN_CLI_PATH` | `~/.local/bin/claude` | Path to Claude Code CLI executable |
+| `SKEIN_DB_PATH` | `data/skein.db` | SQLite DB path |
+| `SKEIN_MODEL` | `sonnet` | Default model for SDK calls |
+| `SKEIN_TASK_TIMEOUT` | `300` | Max seconds for main task execution |
+| `SKEIN_STALE_TASK_TIMEOUT` | task timeout | Stale running task cutoff on startup recovery |
+| `SKEIN_DECOMPOSE_TIMEOUT` | `30` | Timeout for decomposition extraction |
+| `SKEIN_EXTRACT_TIMEOUT` | `30` | Timeout for lesson/memory extraction |
+| `SKEIN_SUMMARY_TIMEOUT` | `60` | Timeout for conversation summarization |
+| `SKEIN_CONSOLIDATE_TIMEOUT` | `120` | Timeout for memory consolidation extraction |
+| `SKEIN_APPROVAL_TIMEOUT` | `600` | Tool approval wait timeout (Telegram/kernel) |
+| `SKEIN_APPROVAL_POLL_TIMEOUT` | `5` | Poll timeout used while waiting for `/approve` or `/deny` |
+| `SKEIN_APPROVAL_INPUT_PREVIEW_LENGTH` | `500` | Max chars shown from tool input in approval prompt |
+| `SKEIN_DECOMPOSITION_MIN_LENGTH` | `80` | Minimum input length before decomposition is considered |
+| `SKEIN_SDK_MAX_TURNS` | `50` | Max Claude turns per task |
+| `SKEIN_CONSOLIDATION_SAFETY_RATIO` | `0.3` | Minimum consolidated-memory ratio required to accept merge |
+| `SKEIN_EVENT_RETENTION_DAYS` | `30` | Days to retain events before maintenance pruning |
+| `SKEIN_DB_BUSY_TIMEOUT_MS` | `5000` | SQLite busy timeout in milliseconds |
+| `SKEIN_TELEGRAM_OPEN_TIMEOUT` | `10` | HTTP open timeout for Telegram API requests |
+| `SKEIN_TELEGRAM_POST_READ_TIMEOUT` | `30` | HTTP read timeout for Telegram send-message calls |
+| `SKEIN_TELEGRAM_POLL_READ_TIMEOUT_BUFFER` | `5` | Extra read timeout seconds added to long-poll requests |
+| `SKEIN_EMBEDDING_BACKFILL_BATCH_SIZE` | `50` | Batch size used when backfilling missing memory embeddings |
+| `SKEIN_AUTO_APPROVE` | _(unset)_ | Comma-separated auto-approval rules (e.g. `Bash:ls *`) |
 
 ---
 
