@@ -88,6 +88,24 @@ RSpec.describe Skein::ObserverServer do
     expect(state[:pending_approvals].first[:tool_name]).to eq("Bash")
   end
 
+  it "builds run timeline for a task" do
+    task_id = @db.get_first_row("SELECT id FROM tasks LIMIT 1")["id"]
+
+    timeline = @server.send(:build_run_timeline, db: @db, task_id: task_id, limit: 50)
+
+    expect(timeline[:task]["id"]).to eq(task_id)
+    expect(timeline[:steps]).not_to be_empty
+    labels = timeline[:steps].map { |s| s[:label] }
+    expect(labels).to include("Task created")
+    expect(labels).to include("task_state_changed")
+  end
+
+  it "returns nil timeline for unknown task" do
+    timeline = @server.send(:build_run_timeline, db: @db, task_id: 999_999, limit: 50)
+
+    expect(timeline).to be_nil
+  end
+
   it "falls back to raw payload for invalid JSON" do
     row = { "id" => 1, "payload" => "not-json" }
     parsed = @server.send(:parse_event_row, row)

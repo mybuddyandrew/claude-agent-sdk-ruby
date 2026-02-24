@@ -34,6 +34,7 @@ module Skein
 
       server.mount_proc("/") { |_req, res| respond_dashboard(res) }
       server.mount_proc("/api/snapshot") { |req, res| respond_snapshot(req, res) }
+      server.mount_proc("/api/run_timeline") { |req, res| respond_run_timeline(req, res) }
       server.mount_proc("/api/chat_state") { |req, res| respond_chat_state(req, res) }
       server.mount_proc("/api/chat_send") { |req, res| respond_chat_send(req, res) }
       server.mount_proc("/api/chat_approval") { |req, res| respond_chat_approval(req, res) }
@@ -84,6 +85,36 @@ module Skein
       res.status = 200
       res["Content-Type"] = "application/json; charset=utf-8"
       res.body = JSON.generate(state)
+    ensure
+      db&.close
+    end
+
+    def respond_run_timeline(req, res)
+      task_id = req.query["task_id"].to_i
+      if task_id <= 0
+        res.status = 422
+        res["Content-Type"] = "application/json; charset=utf-8"
+        res.body = JSON.generate(error: "task_id is required")
+        return
+      end
+
+      limit = req.query["limit"].to_i
+      limit = 300 if limit <= 0
+      limit = 1000 if limit > 1000
+
+      db = DB.new(@config.db_path, busy_timeout_ms: @config.db_busy_timeout_ms)
+      timeline = build_run_timeline(db: db, task_id: task_id, limit: limit)
+
+      if timeline.nil?
+        res.status = 404
+        res["Content-Type"] = "application/json; charset=utf-8"
+        res.body = JSON.generate(error: "task not found")
+        return
+      end
+
+      res.status = 200
+      res["Content-Type"] = "application/json; charset=utf-8"
+      res.body = JSON.generate(timeline)
     ensure
       db&.close
     end
@@ -284,6 +315,67 @@ module Skein
         active_run: active_run,
         recent_runs: recent_runs,
         pending_approvals: pending,
+      }
+    end
+
+    def build_run_timeline(db:, task_id:, limit:)
+      task = db.get_first_row(
+        "SELECT id, state, lane, source, chat_id, input_text, result_text, error_message, created_at, updated_at " \
+        "FROM tasks WHERE id = ?",
+        [task_id]
+      )
+      return nil unless task
+
+      events = db.execute(
+        "SELECT id, type, task_id, payload, created_at FROM events WHERE task_id = ? ORDER BY id ASC LIMIT ?",
+        [task_id, limit]
+      ).map { |row| parse_event_row(row) }
+
+      turns = db.execute(
+        "SELECT id, role, content, created_at FROM conversation_turns WHERE task_id = ? ORDER BY id ASC LIMIT ?",
+        [task_id, limit]
+      )
+
+      steps = []
+      steps << {
+        kind: "task",
+        label: "Task created",
+        at: task["created_at"],
+        detail: {
+          state: task["state"],
+          source: task["source"],
+          lane: task["lane"],
+          chat_id: task["chat_id"],
+          input_text: task["input_text"],
+        },
+      }
+
+      events.each do |event|
+        steps << {
+          kind: "event",
+          label: event["type"],
+          at: event["created_at"],
+          detail: event["payload"],
+        }
+      end
+
+      turns.each do |turn|
+        steps << {
+          kind: "turn",
+          label: "#{turn['role']} message",
+          at: turn["created_at"],
+          detail: {
+            role: turn["role"],
+            content: turn["content"],
+          },
+        }
+      end
+
+      steps.sort_by! { |s| s[:at].to_s }
+
+      {
+        task: task,
+        steps: steps,
       }
     end
 
@@ -529,6 +621,13 @@ module Skein
             .approval-actions button { border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
             .approval-actions .allow { background: #0f766e; color: white; }
             .approval-actions .deny { background: #b91c1c; color: white; }
+            .timeline-controls { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: #faf7ef; align-items: center; }
+            .timeline-controls input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font: inherit; }
+            .timeline-controls button { border: 0; border-radius: 6px; padding: 6px 10px; background: var(--accent); color: white; cursor: pointer; }
+            .timeline-step { border-bottom: 1px solid #f0eee8; padding: 8px 10px; }
+            .timeline-step:last-child { border-bottom: 0; }
+            .timeline-step .label { font-weight: 600; }
+            .timeline-step .detail { margin-top: 4px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
             main { padding: 18px 22px 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
             section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
             section h2 { margin: 0; padding: 10px 12px; font-size: 14px; border-bottom: 1px solid var(--border); background: #faf7ef; }
@@ -583,6 +682,15 @@ module Skein
               <h2>Lessons</h2>
               <div class="scroll"><table><thead><tr><th>ID</th><th>Content</th><th>Category</th><th>Score</th><th>Uses</th></tr></thead><tbody id="lessons"></tbody></table></div>
             </section>
+            <section>
+              <h2>Run Timeline Replay</h2>
+              <div class="timeline-controls">
+                <span class="muted">Task ID</span>
+                <input id="timelineTaskId" type="number" min="1" placeholder="Select from tasks or type id" />
+                <button id="timelineLoad">Load</button>
+              </div>
+              <div id="timelineSteps" class="scroll"></div>
+            </section>
           </main>
           <script>
             const countsEl = document.getElementById("counts")
@@ -599,6 +707,9 @@ module Skein
             const chatStatusEl = document.getElementById("chatStatus")
             const chatApprovalsEl = document.getElementById("chatApprovals")
             const chatId = "web"
+            const timelineTaskIdEl = document.getElementById("timelineTaskId")
+            const timelineLoadEl = document.getElementById("timelineLoad")
+            const timelineStepsEl = document.getElementById("timelineSteps")
 
             function escapeHtml(v) {
               return String(v ?? "")
@@ -628,6 +739,17 @@ module Skein
                   <td class="mono">${escapeHtml(t.updated_at || "")}</td>
                 </tr>`
               }).join("")
+
+              tasksEl.querySelectorAll("tr").forEach((row, idx) => {
+                const task = rows[idx]
+                if (!task) return
+                row.style.cursor = "pointer"
+                row.title = "Click to load timeline"
+                row.addEventListener("click", () => {
+                  timelineTaskIdEl.value = task.id
+                  loadTimeline(task.id)
+                })
+              })
             }
 
             function renderEvents(rows) {
@@ -797,6 +919,48 @@ module Skein
               }
             }
 
+            async function loadTimeline(taskId) {
+              const id = Number(taskId || timelineTaskIdEl.value)
+              if (!id || id <= 0) return
+
+              timelineStepsEl.innerHTML = `<div class="timeline-step muted">Loading timeline for task #${id}...</div>`
+              try {
+                const res = await fetch(`/api/run_timeline?task_id=${id}&limit=400`)
+                if (!res.ok) {
+                  const body = await res.json().catch(() => ({}))
+                  throw new Error(body.error || `HTTP ${res.status}`)
+                }
+                const data = await res.json()
+                renderTimeline(data)
+              } catch (err) {
+                timelineStepsEl.innerHTML = `<div class="timeline-step muted">Timeline error: ${escapeHtml(err.message)}</div>`
+              }
+            }
+
+            function renderTimeline(data) {
+              const steps = data.steps || []
+              if (steps.length === 0) {
+                timelineStepsEl.innerHTML = `<div class="timeline-step muted">No timeline data for this task.</div>`
+                return
+              }
+
+              timelineStepsEl.innerHTML = steps.map(step => {
+                let detail = ""
+                try {
+                  detail = JSON.stringify(step.detail || {}, null, 2)
+                } catch (_err) {
+                  detail = String(step.detail || "")
+                }
+
+                return `
+                  <div class="timeline-step">
+                    <div class="label">${escapeHtml(step.label || step.kind)} <span class="muted">(${escapeHtml(step.at || "")})</span></div>
+                    <div class="detail mono">${escapeHtml(detail)}</div>
+                  </div>
+                `
+              }).join("")
+            }
+
             async function refresh() {
               try {
                 const [snapshotRes, chatRes] = await Promise.all([
@@ -832,6 +996,7 @@ module Skein
                 sendChat()
               }
             })
+            timelineLoadEl.addEventListener("click", () => loadTimeline())
 
             refresh()
             setInterval(refresh, 1000)
