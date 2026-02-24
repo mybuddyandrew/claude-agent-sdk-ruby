@@ -1,12 +1,18 @@
 # Test Suite
 
-This directory contains the test suite for the Claude Agent SDK for Ruby.
+This directory contains tests for both Skein (`spec/skein/`) and the embedded
+Claude Agent SDK compatibility layer (`spec/unit/`, `spec/integration/`).
 
 ## Running Tests
 
 ### Run all tests
 ```bash
 bundle exec rspec
+```
+
+### Run Skein tests only
+```bash
+bundle exec rspec spec/skein/
 ```
 
 ### Run with detailed output
@@ -16,7 +22,7 @@ bundle exec rspec --format documentation
 
 ### Run specific test file
 ```bash
-bundle exec rspec spec/unit/message_parser_spec.rb
+bundle exec rspec spec/skein/agent_spec.rb
 ```
 
 ### Run specific test by line number
@@ -56,10 +62,10 @@ RUN_INTEGRATION=1 bundle exec rspec
 
 Integration tests that actually connect to Claude Code CLI require it to be installed.
 
-To run real Claude CLI integration tests (live API call):
+To run real Claude CLI integration tests (live CLI call):
 
 ```bash
-RUN_INTEGRATION=1 RUN_REAL_INTEGRATION=1 ANTHROPIC_API_KEY=... bundle exec rspec spec/integration/real_cli_integration_spec.rb
+RUN_INTEGRATION=1 RUN_REAL_INTEGRATION=1 bundle exec rspec spec/integration/real_cli_integration_spec.rb
 ```
 
 ### Test Helpers (`spec/support/`)

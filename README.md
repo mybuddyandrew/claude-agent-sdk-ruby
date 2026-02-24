@@ -1,14 +1,13 @@
-# Claude Agent SDK for Ruby + Skein
+# Skein (with Claude Agent SDK Compatibility)
 
-> **Fork notice**: This is a fork of the [unofficial Ruby Claude Agent SDK](https://github.com/ya-luotao/claude-agent-sdk-ruby) that also includes **Skein**, a personal assistant agent kernel built on top of the SDK. The SDK layer is unchanged — Skein lives alongside it in `lib/skein/`.
-
-[![Gem Version](https://badge.fury.io/rb/claude-agent-sdk.svg?icon=si%3Arubygems)](https://badge.fury.io/rb/claude-agent-sdk)
+> **Project note**: This repository started as a fork of the unofficial Ruby Claude Agent SDK and now ships **Skein** as the primary product. The original `ClaudeAgentSDK` API is still included for compatibility in `lib/claude_agent_sdk/`.
 
 ## Table of Contents
 
 - [Skein](#skein)
 - [Installation](#installation)
-- [Quick Start](#quick-start)
+- [Quick Start (Skein Runtime)](#quick-start-skein-runtime)
+- [SDK Compatibility Quick Start](#sdk-compatibility-quick-start)
 - [Basic Usage: query()](#basic-usage-query)
 - [Client](#client)
 - [Custom Tools (SDK MCP Servers)](#custom-tools-sdk-mcp-servers)
@@ -70,10 +69,37 @@ Claude Agent SDK (lib/claude_agent_sdk/)
 ### Running Skein Tests
 
 ```bash
-bundle exec rspec spec/skein/                     # All Skein specs (340 examples)
+bundle exec rspec spec/skein/                     # All Skein specs (366 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (hits real CLI)
 ```
+
+### CLI Commands
+
+The `bin/skein` entry point supports:
+
+- `bin/skein` or `bin/skein repl` — interactive REPL
+- `bin/skein kernel` — Telegram-backed runtime loop
+- `bin/skein status` — quick DB/task/memory/lesson counts
+- `bin/skein version` — print Skein version
+
+### REPL Shortcuts
+
+When running `bin/skein` in REPL mode, these slash commands are available:
+
+- `/help` — command list
+- `/status` — memory/lesson/task quick stats
+- `/memories [query]` — recent memories or search
+- `/forget-memory <id>` — delete one memory by id
+- `/lessons` — top lessons by effectiveness
+- `/forget-lesson <id>` — delete one lesson by id
+- `/tasks [state]` — queued/running task view
+- `/summary` — show current stored conversation summary for this chat
+- `/maintenance` — run maintenance hooks immediately
+- `/reindex-embeddings [n]` — backfill missing memory embeddings (optional batch size)
+- `/new-session` — start a fresh Claude session for this chat
+- `/clear-context` — clear turns/summaries/session for this chat
+- `/quit` or `/exit` — leave REPL
 
 ### Requirements
 
@@ -115,11 +141,11 @@ SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live tests (h
 Add this line to your application's Gemfile:
 
 ```ruby
-# Recommended: Use the latest from GitHub for newest features
-gem 'claude-agent-sdk', github: 'ya-luotao/claude-agent-sdk-ruby'
+# Recommended: latest main branch
+gem 'skein', github: 'mybuddyandrew/claude-agent-sdk-ruby'
 
-# Or use a stable version from RubyGems
-gem 'claude-agent-sdk', '~> 0.7.2'
+# Or from RubyGems when published
+gem 'skein'
 ```
 
 And then execute:
@@ -131,25 +157,30 @@ bundle install
 Or install directly from RubyGems:
 
 ```bash
-gem install claude-agent-sdk
+gem install skein
 ```
 
 **Prerequisites:**
-- Ruby 3.2+
-- Node.js
-- Claude Code 2.0.0+: `npm install -g @anthropic-ai/claude-code`
+- Ruby 4.0+
+- Claude Code CLI available at `~/.local/bin/claude`
 
-### Agentic Coding Skill
+### Compatibility Notes
 
-If you're using [Claude Code](https://claude.ai/claude-code) or another agentic coding tool that supports [skills](https://skills.sh), you can install the SDK skill:
+Skein is the primary runtime. The legacy SDK API remains available, so existing code using:
 
-```bash
-npx skills add https://github.com/ya-luotao/claude-agent-sdk-ruby --skill claude-agent-sdk-ruby
+```ruby
+require 'claude_agent_sdk'
 ```
 
-This skill teaches your AI coding assistant about the SDK's APIs, patterns, and best practices, making it easier to get help writing code that uses this SDK.
+continues to work from the same gem.
 
-## Quick Start
+## Quick Start (Skein Runtime)
+
+```bash
+bin/skein
+```
+
+## SDK Compatibility Quick Start
 
 ```ruby
 require 'claude_agent_sdk'
@@ -158,6 +189,8 @@ ClaudeAgentSDK.query(prompt: "What is 2 + 2?") do |message|
   puts message
 end
 ```
+
+The remaining sections document the legacy `ClaudeAgentSDK` API that ships inside Skein for compatibility.
 
 ## Basic Usage: query()
 

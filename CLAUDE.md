@@ -4,10 +4,10 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-This repo contains two integrated layers:
+This repo ships Skein as the primary runtime and includes two integrated layers:
 
-1. **Claude Agent SDK** (`lib/claude_agent_sdk/`) — Unofficial Ruby SDK wrapping the Claude Code CLI as a subprocess, communicating via stream-JSON over stdin/stdout.
-2. **Skein** (`lib/skein/`) — Personal assistant agent kernel built on top of the SDK. Handles memory, lessons, task management, tool execution, skill system, conversation summarization, and task decomposition.
+1. **Skein** (`lib/skein/`) — Personal assistant agent kernel. Handles memory, lessons, task management, tool execution, skill system, conversation summarization, and task decomposition.
+2. **Claude Agent SDK compatibility layer** (`lib/claude_agent_sdk/`) — Ruby SDK API retained for existing integrations, wrapping Claude Code CLI stream-JSON subprocess communication.
 
 **Runtime:** Ruby 4.0.0 (via asdf). Claude Code CLI 2.0.0+ at `~/.local/bin/claude` (native binary, uses Max subscription — no API key needed).
 
@@ -17,9 +17,9 @@ This repo contains two integrated layers:
 
 ```bash
 bundle install                                    # Install dependencies
-bundle exec rspec                                 # Run all unit tests (561 examples)
+bundle exec rspec                                 # Run all unit tests (587 examples)
 bundle exec rspec spec/unit/                      # SDK specs only (221 examples)
-bundle exec rspec spec/skein/                     # Skein specs only (340 examples)
+bundle exec rspec spec/skein/                     # Skein specs only (366 examples)
 bundle exec rspec spec/skein/agent_spec.rb        # Single spec file
 bundle exec rspec spec/skein/agent_spec.rb:42     # Single test by line number
 SKEIN_LIVE_TEST=1 bundle exec rspec spec/skein/sdk_live_spec.rb  # Live SDK tests (hits real CLI)

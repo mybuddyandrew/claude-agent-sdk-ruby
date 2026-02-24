@@ -4,7 +4,7 @@ source 'https://rubygems.org'
 
 ruby '4.0.0'
 
-# Specify gem's dependencies in claude-agent-sdk.gemspec
+# Specify gem dependencies in the project gemspec
 gemspec
 
 group :development, :test do
